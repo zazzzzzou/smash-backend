@@ -1,0 +1,6 @@
+# Dépendances Node.js
+/node_modules
+
+# Fichiers de configuration et de sécurité
+.env
+tokens.json

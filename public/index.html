@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alerte Twitch BLB_TV</title>
+    <style>
+        body {
+            background-color: transparent; /* Fond transparent pour l'intégration OBS */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Style des images : cachées par défaut */
+        .alert-image {
+            display: none; 
+            max-width: 80%;
+            max-height: 80%;
+            animation: popIn 0.5s ease-out;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <img id="img-bobo" class="alert-image" src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3ZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/L2QlXqO0TDp0aZ2bpl/giphy.gif" alt="Bobo">
+    
+    <img id="img-screamer" class="alert-image" src="https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3ZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6YnZxeXJ6eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/5fBH6z8aMV9CM/giphy.gif" alt="Screamer">
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Fonction pour afficher une image pendant 3 secondes
+        function showAlert(imageId) {
+            const img = document.getElementById(imageId);
+            if (img) {
+                // 1. Afficher l'image
+                img.style.display = 'block';
+                
+                // 2. Jouer un son (optionnel)
+                // const audio = new Audio('son.mp3'); audio.play();
+
+                // 3. Cacher après 3 secondes (3000 ms)
+                setTimeout(() => {
+                    img.style.display = 'none';
+                }, 3000);
+            }
+        }
+
+        // Écoute des événements venant du serveur
+        socket.on('trigger-bonus1', () => {
+            console.log("Bonus 1 (Bobo) activé !");
+            showAlert('img-bobo');
+        });
+
+        socket.on('trigger-bonus2', () => {
+            console.log("Bonus 2 (Screamer) activé !");
+            showAlert('img-screamer');
+        });
+    </script>
+</body>
+</html>
