@@ -147,8 +147,7 @@ async function mapRewardNamesToIds(apiClient) {
 // --- Routes d'Administration (Gérées par BLB) ---
 
 function setupAdminRoutes(app, apiClient, io) {
-    app.use(bodyParser.json());
-    app.use(bodyParser.urlencoded({ extended: true }));
+    // ! ATTENTION: body-parser n'est plus appliqué globalement, mais par route !
     
     // Fonction interne pour la clôture des bonus
     async function closeBonusPhase() {
@@ -159,7 +158,7 @@ function setupAdminRoutes(app, apiClient, io) {
             // Action: Bloquer et Cacher toutes les 9 récompenses (Logique "Caché")
             for(const key in REWARD_IDS) {
                 console.log(`[LOG: CLOSE PHASE] Bonus ${key}: Désactivation et CACHÉ.`);
-                await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
+                await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); // isEnabled: false, isHidden: true
             }
             
             io.emit('game-status', { status: 'IN_PROGRESS', bonusUsed: currentMatch.bonusResults });
@@ -189,9 +188,12 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ message: `Mise en état Caché de ${count} récompenses.` });
     });
 
-    // --- Routes de Flux de Jeu ---
+    // --- Routes de Flux de Jeu (body-parser appliqué localement) ---
     
-    app.post('/admin/start-match', async (req, res) => {
+    app.post('/admin/start-match', 
+        bodyParser.json(), // Appliqué ici
+        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        async (req, res) => {
         if (currentMatch && currentMatch.status !== 'CLOSED') {
             return res.status(400).send({ message: "Le match actuel n'est pas terminé." });
         }
@@ -223,16 +225,16 @@ function setupAdminRoutes(app, apiClient, io) {
             await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); // Disabled, Hidden
         }
 
-        // On envoie l'état via Socket.IO
         io.emit('game-status', { status: currentMatch.status, matchId: currentMatchId });
         console.log(`[ADMIN] Match ${currentMatchId} démarré. Statut: BETTING. Récompenses CACHÉES.`);
-        
-        // On renvoie l'état via HTTP pour la réponse du bouton
         res.send({ status: currentMatch.status, matchId: currentMatchId });
     });
 
 
-    app.post('/admin/allow-bonus', async (req, res) => {
+    app.post('/admin/allow-bonus', 
+        bodyParser.json(), // Appliqué ici
+        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        async (req, res) => {
         if (!currentMatch) {
             return res.status(400).send({ message: "Veuillez démarrer un match avant d'autoriser les bonus." });
         }
@@ -261,7 +263,10 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
 
-    app.post('/admin/close-match', async (req, res) => {
+    app.post('/admin/close-match', 
+        bodyParser.json(), // Appliqué ici
+        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        async (req, res) => {
         const winnerBotIndex = parseInt(req.body.winner); 
 
         if (!currentMatch || currentMatch.status === 'CLOSED') {
@@ -396,7 +401,14 @@ async function main() {
     const app = express();
     const httpServer = createServer(app);
     const io = new Server(httpServer);
+    
+    // Servir les fichiers statiques du dossier 'public'
     app.use(express.static('public'));
+
+    // Rediriger la racine vers l'interface Admin
+    app.get('/', (req, res) => {
+        res.redirect('/admin.html');
+    });
 
     console.log("Authentification...");
     const authProvider = await getAuthProvider();
@@ -418,12 +430,11 @@ async function main() {
         console.warn(`[EVENT SUB] Erreur au démarrage du listener (normal en local sans tunnel HTTPS): ${e.message}`);
     }
 
-    // 7. Démarrage du serveur web
     httpServer.listen(port, () => {
         console.log(`\n🚀 Serveur lancé sur http://localhost:${port}`);
     });
 
-    // NOUVEAU: Synchronisation Socket.IO au démarrage
+    // Synchronisation Socket.IO au démarrage
     io.on('connection', (socket) => {
         console.log('Client Admin connecté. Envoi de l’état actuel...');
         if (currentMatch) {
