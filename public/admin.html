@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>SMASH BETTING - Administration</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .action-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 6px; }
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; color: white; margin-right: 10px; }
+        #startMatchBtn { background-color: #4CAF50; }
+        #allowBonusBtn { background-color: #f44336; }
+        #closeMatchBtn { background-color: #008CBA; }
+        #setActiveBtn { background-color: #4CAF50; } /* Vert */
+        #setHiddenBtn { background-color: #333; } /* Noir/Caché */
+        .info { margin-top: 15px; padding: 10px; background-color: #eee; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛠️ Panneau Admin Smash Betting</h1>
+
+        <div class="action-group">
+            <h2>Phases de Jeu</h2>
+            <button id="startMatchBtn">1. DÉMARRER NOUVEAU MATCH</button>
+            <button id="allowBonusBtn">2. AUTORISER BONUS (10s)</button>
+        </div>
+
+        <div class="action-group">
+            <h2>Clôture et Résultats</h2>
+            <form id="closeForm">
+                <label for="winner">Gagnant (Bot 1-4):</label>
+                <input type="number" id="winner" name="winner" min="1" max="4" required>
+                <button type="submit" id="closeMatchBtn">3. CLÔTURER MATCH & CALCULER POINTS</button>
+            </form>
+        </div>
+        
+        <div class="action-group">
+            <h2>⚡️ Contrôle d'État Manuel (Pour Débug Extrême)</h2>
+            <button id="setActiveBtn">Forcer Actif/Visible</button>
+            <button id="setHiddenBtn">Forcer Caché/Inactif (Repos)</button>
+            <p>Utilisez ceci uniquement si le cycle est rompu.</p>
+        </div>
+
+        <div class="info">
+            Statut Actuel du Jeu : <span id="gameStatus">CHARGEMENT...</span><br>
+            Match ID : <span id="matchId">N/A</span>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const baseUrl = window.location.origin;
+
+        // Rend le code plus sûr contre les données manquantes
+        function updateStatusDisplay(status, matchId) {
+            // Si status est undefined (ou null), affiche 'N/A'
+            const statusText = status || 'N/A'; 
+            document.getElementById('gameStatus').textContent = statusText + ' (MAJ)';
+            if (matchId) {
+                document.getElementById('matchId').textContent = matchId;
+            }
+        }
+
+        // Mise à jour de l'interface par Socket.IO
+        socket.on('game-status', (data) => {
+            updateStatusDisplay(data.status, data.matchId);
+        });
+
+        // Fonction pour envoyer une requête POST
+        async function sendAction(endpoint, body = {}) {
+            try {
+                const response = await fetch(`${baseUrl}/admin/${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP Error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                console.log(`Action ${endpoint} réussie. Réponse reçue:`, data);
+                
+                // Mise à jour via la réponse fetch
+                updateStatusDisplay(data.status, data.matchId);
+
+            } catch (error) {
+                alert(`Erreur lors de l'action ${endpoint}. Consultez la console.`);
+                console.error(error);
+            }
+        }
+
+        // --- Listeners de Flux de Jeu ---
+        document.getElementById('startMatchBtn').addEventListener('click', () => {
+            sendAction('start-match');
+        });
+
+        document.getElementById('allowBonusBtn').addEventListener('click', () => {
+            sendAction('allow-bonus');
+        });
+
+        document.getElementById('closeForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const winnerBot = document.getElementById('winner').value;
+            sendAction('close-match', { winner: winnerBot });
+        });
+        
+        // --- Listeners de Contrôle Manuel ---
+        document.getElementById('setActiveBtn').addEventListener('click', () => {
+            sendAction('set-active');
+        });
+        document.getElementById('setHiddenBtn').addEventListener('click', () => {
+            sendAction('set-hidden');
+        });
+
+    </script>
+</body>
+</html>
