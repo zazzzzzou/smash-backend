@@ -12,9 +12,11 @@
         #startMatchBtn { background-color: #4CAF50; }
         #allowBonusBtn { background-color: #f44336; }
         #closeMatchBtn { background-color: #008CBA; }
-        #setActiveBtn { background-color: #4CAF50; } /* Vert */
-        #setHiddenBtn { background-color: #333; } /* Noir/Caché */
+        #setActiveBtn { background-color: #4CAF50; } 
+        #setHiddenBtn { background-color: #333; } 
         .info { margin-top: 15px; padding: 10px; background-color: #eee; border-radius: 4px; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
     </style>
 </head>
 <body>
@@ -22,17 +24,37 @@
         <h1>🛠️ Panneau Admin Smash Betting</h1>
 
         <div class="action-group">
+            <h2>Configuration du Pari (Prediction)</h2>
+            <form id="predictionConfigForm">
+                <label for="title">Titre du Pari :</label>
+                <input type="text" id="title" name="title" value="Quel Bot va gagner ?" required>
+
+                <label for="outcome1">Choix 1 (Bot 1) :</label>
+                <input type="text" id="outcome1" name="outcome1" value="Bot 1 (Kirby)" required>
+                <label for="outcome2">Choix 2 (Bot 2) :</label>
+                <input type="text" id="outcome2" name="outcome2" value="Bot 2 (Samus)" required>
+                <label for="outcome3">Choix 3 (Bot 3) :</label>
+                <input type="text" id="outcome3" name="outcome3" value="Bot 3 (Captain Falcon)" required>
+                <label for="outcome4">Choix 4 (Bot 4) :</label>
+                <input type="text" id="outcome4" name="outcome4" value="Bot 4 (Pikachu)" required>
+
+                <label for="duration">Durée du Pari (en secondes) :</label>
+                <input type="number" id="duration" name="duration" value="90" min="30" max="1800" required>
+            </form>
+        </div>
+
+        <div class="action-group">
             <h2>Phases de Jeu</h2>
-            <button id="startMatchBtn">1. DÉMARRER NOUVEAU MATCH</button>
+            <button id="startMatchBtn">1. DÉMARRER NOUVEAU MATCH & LANCER PARI</button>
             <button id="allowBonusBtn">2. AUTORISER BONUS (10s)</button>
         </div>
 
         <div class="action-group">
             <h2>Clôture et Résultats</h2>
             <form id="closeForm">
-                <label for="winner">Gagnant (Bot 1-4):</label>
+                <label for="winner">Gagnant (Bot 1-4) :</label>
                 <input type="number" id="winner" name="winner" min="1" max="4" required>
-                <button type="submit" id="closeMatchBtn">3. CLÔTURER MATCH & CALCULER POINTS</button>
+                <button type="submit" id="closeMatchBtn">3. CLÔTURER MATCH & PAYER</button>
             </form>
         </div>
         
@@ -54,9 +76,7 @@
         const socket = io();
         const baseUrl = window.location.origin;
 
-        // Rend le code plus sûr contre les données manquantes
         function updateStatusDisplay(status, matchId) {
-            // Si status est undefined (ou null), affiche 'N/A'
             const statusText = status || 'N/A'; 
             document.getElementById('gameStatus').textContent = statusText + ' (MAJ)';
             if (matchId) {
@@ -64,7 +84,6 @@
             }
         }
 
-        // Mise à jour de l'interface par Socket.IO
         socket.on('game-status', (data) => {
             updateStatusDisplay(data.status, data.matchId);
         });
@@ -81,13 +100,13 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP Error! Status: ${response.status}`);
+                    // Tente de lire le message d'erreur si la réponse n'est pas OK
+                    const errorData = await response.json().catch(() => ({ message: "Erreur serveur inconnue." }));
+                    throw new Error(`HTTP Error! Status: ${response.status}. Message: ${errorData.message}`);
                 }
                 const data = await response.json();
                 
                 console.log(`Action ${endpoint} réussie. Réponse reçue:`, data);
-                
-                // Mise à jour via la réponse fetch
                 updateStatusDisplay(data.status, data.matchId);
 
             } catch (error) {
@@ -98,7 +117,21 @@
 
         // --- Listeners de Flux de Jeu ---
         document.getElementById('startMatchBtn').addEventListener('click', () => {
-            sendAction('start-match');
+            const form = document.getElementById('predictionConfigForm');
+            const outcomes = [
+                { title: form.outcome1.value, id: 1 },
+                { title: form.outcome2.value, id: 2 },
+                { title: form.outcome3.value, id: 3 },
+                { title: form.outcome4.value, id: 4 },
+            ];
+            
+            const betConfig = {
+                title: form.title.value,
+                outcomes: outcomes,
+                duration: parseInt(form.duration.value, 10)
+            };
+            
+            sendAction('start-match', betConfig);
         });
 
         document.getElementById('allowBonusBtn').addEventListener('click', () => {

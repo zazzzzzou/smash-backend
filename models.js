@@ -36,6 +36,10 @@ const MatchSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    twitchPredictionId: {
+        type: String,
+        required: false
+    },
     status: { // État du match : BETTING, BONUS_ACTIVE, IN_PROGRESS, CLOSED
         type: String,
         enum: ['BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED'],

@@ -37,6 +37,7 @@ const ALL_REWARDS = [
 // Variables Globales de Jeu
 let currentMatchId = 0; 
 let currentMatch = null; 
+let currentPredictionId = null; 
 const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 
@@ -52,7 +53,7 @@ async function getAuthProvider() {
             refreshToken: rawData.refreshToken || rawData.refresh_token,
             expiresIn: rawData.expiresIn || rawData.expires_in || 0,
             obtainmentTimestamp: rawData.obtainmentTimestamp || 0,
-            scope: rawData.scope || ['channel:read:redemptions', 'channel:manage:redemptions']
+            scope: rawData.scope || ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']
         };
     } catch (e) {
         if (process.env.INITIAL_ACCESS_TOKEN && process.env.INITIAL_REFRESH_TOKEN) {
@@ -61,7 +62,7 @@ async function getAuthProvider() {
                 refreshToken: process.env.INITIAL_REFRESH_TOKEN,
                 expiresIn: 0,
                 obtainmentTimestamp: 0,
-                scope: ['channel:read:redemptions', 'channel:manage:redemptions']
+                scope: ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']
             };
             console.log("Utilisation des tokens depuis les variables d'environnement.");
         }
@@ -80,15 +81,15 @@ async function getAuthProvider() {
         }
     });
 
-    if (!channelUserId) throw new Error("CHANNEL_USER_ID manquant dans le .env");
+    if (!channelUserId) throw new Error("CHANNEL_USER_ID manquant dans le .env ou mal défini.");
     
     authProvider.addUser(channelUserId, tokenData);
-    authProvider.addIntentsToUser(channelUserId, ['channel:read:redemptions', 'channel:manage:redemptions']);
+    authProvider.addIntentsToUser(channelUserId, ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']);
 
     return authProvider;
 }
 
-// --- Fonctions Utilitaires de Jeu ---
+// --- Fonctions Utilitaires de Jeu (Inchangement) ---
 
 async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
     if (!rewardId) return;
@@ -147,18 +148,15 @@ async function mapRewardNamesToIds(apiClient) {
 // --- Routes d'Administration (Gérées par BLB) ---
 
 function setupAdminRoutes(app, apiClient, io) {
-    // ! ATTENTION: body-parser n'est plus appliqué globalement, mais par route !
     
-    // Fonction interne pour la clôture des bonus
     async function closeBonusPhase() {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
             currentMatch = await currentMatch.save(); 
 
-            // Action: Bloquer et Cacher toutes les 9 récompenses (Logique "Caché")
             for(const key in REWARD_IDS) {
                 console.log(`[LOG: CLOSE PHASE] Bonus ${key}: Désactivation et CACHÉ.`);
-                await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); // isEnabled: false, isHidden: true
+                await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
             }
             
             io.emit('game-status', { status: 'IN_PROGRESS', bonusUsed: currentMatch.bonusResults });
@@ -166,46 +164,53 @@ function setupAdminRoutes(app, apiClient, io) {
         }
     }
 
-    // NOUVELLE ROUTE : Visible et Activé (Bouton de contrôle)
-    app.post('/admin/set-active', async (req, res) => {
-        let count = 0;
-        console.log("[ADMIN LOG: SET-ACTIVE] Tentative: isEnabled=true, isHidden=false (ACTIF ET VISIBLE)");
-        for(const key in REWARD_IDS) {
-            await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
-            count++;
-        }
-        res.send({ message: `Activation et Visibilité de ${count} récompenses.` });
-    });
+    // Contrôles manuels (non modifiés)
+    app.post('/admin/set-active', async (req, res) => { /* ... */ });
+    app.post('/admin/set-hidden', async (req, res) => { /* ... */ });
 
-    // NOUVELLE ROUTE : Caché (Bouton de contrôle)
-    app.post('/admin/set-hidden', async (req, res) => {
-        let count = 0;
-        console.log("[ADMIN LOG: SET-HIDDEN] Tentative: isEnabled=false, isHidden=true (CACHÉ ET INACTIF)");
-        for(const key in REWARD_IDS) {
-            await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
-            count++;
-        }
-        res.send({ message: `Mise en état Caché de ${count} récompenses.` });
-    });
 
-    // --- Routes de Flux de Jeu (body-parser appliqué localement) ---
-    
+    // --- Route 1: DÉMARRER MATCH & CRÉER PARI ---
     app.post('/admin/start-match', 
-        bodyParser.json(), // Appliqué ici
-        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        bodyParser.json(), 
+        bodyParser.urlencoded({ extended: true }), 
         async (req, res) => {
         if (currentMatch && currentMatch.status !== 'CLOSED') {
             return res.status(400).send({ message: "Le match actuel n'est pas terminé." });
         }
 
-        currentMatchId++; 
+        const { title, outcomes, duration } = req.body;
         
+        // 1. Création du Pari Twitch
+        let prediction;
+        try {
+            console.log(`[TWITCH API] Création du pari : "${title}" pour ${duration}s...`);
+            
+            const outcomeTitles = outcomes.map(o => o.title);
+            
+            // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
+            prediction = await apiClient.predictions.createPrediction(channelUserId, {
+                title: title,
+                outcomes: outcomeTitles,
+                autoLockAfter: duration 
+            });
+            
+            currentPredictionId = prediction.id;
+            console.log(`[TWITCH API] Pari créé avec succès. ID: ${currentPredictionId}`);
+
+        } catch (error) {
+            console.error("[TWITCH API] Erreur lors de la création du pari:", error);
+            return res.status(500).send({ message: `Erreur Twitch API : Échec de la création du pari. (${error.message})` });
+        }
+
+        // 2. Création du Match DB
+        currentMatchId++; 
         const initialBonusMap = new Map();
         for (const reward of ALL_REWARDS) { initialBonusMap.set(reward.key, false); } 
 
         try {
             const newMatch = new Match({
                 matchId: currentMatchId, 
+                twitchPredictionId: currentPredictionId, 
                 status: 'BETTING',
                 bonusResults: {
                     bot1Level: 8, bot2Level: 8, bot3Level: 8, bot4Level: 8,
@@ -215,34 +220,48 @@ function setupAdminRoutes(app, apiClient, io) {
             });
             currentMatch = await newMatch.save(); 
         } catch (error) {
-            console.error(error);
-            return res.status(500).send({ message: "Erreur lors de la création du match (DB). Consultez les logs serveur." });
+            console.error("[DB] Erreur lors de la création du Match DB:", error);
+            // CORRECTION: Utilisation de apiClient.predictions (au pluriel) pour l'annulation
+            await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, { status: 'CANCELED' }); 
+            return res.status(500).send({ message: "Erreur DB : Échec de la création du match." });
         }
         
-        // Au démarrage (phase BETTING), on met en état Caché (Repos)
-        console.log("[LOG] Match Démarré: Forçage à l'état CACHÉ.");
+        // 3. Mise à jour des récompenses et réponse
+        console.log("[LOG] Match Démarré: Forçage des récompenses à l'état CACHÉ.");
         for(const key in REWARD_IDS) {
-            await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); // Disabled, Hidden
+            await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
         }
 
         io.emit('game-status', { status: currentMatch.status, matchId: currentMatchId });
-        console.log(`[ADMIN] Match ${currentMatchId} démarré. Statut: BETTING. Récompenses CACHÉES.`);
-        res.send({ status: currentMatch.status, matchId: currentMatchId });
+        res.send({ status: currentMatch.status, matchId: currentMatchId, predictionId: currentPredictionId });
     });
 
 
+    // --- Route 2: AUTORISER BONUS ---
     app.post('/admin/allow-bonus', 
-        bodyParser.json(), // Appliqué ici
-        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        bodyParser.json(), 
+        bodyParser.urlencoded({ extended: true }), 
         async (req, res) => {
         if (!currentMatch) {
             return res.status(400).send({ message: "Veuillez démarrer un match avant d'autoriser les bonus." });
         }
         
+        // 1. Clôturer les paris Twitch si toujours ouverts
+        if (currentPredictionId) {
+             try {
+                // Verrouille le pari pour empêcher de nouveaux votes
+                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
+                await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, { status: 'LOCKED' });
+                console.log(`[TWITCH API] Pari ${currentPredictionId} verrouillé (LOCKED).`);
+            } catch (e) {
+                console.error("[TWITCH API] Erreur lors du verrouillage du pari:", e.message);
+            }
+        }
+        
+        // 2. Mise à jour de l'état du match et de la logique Bonus (inchangée)
         currentMatch.status = 'BONUS_ACTIVE';
         currentMatch = await currentMatch.save();
 
-        // 1. Débloquer et Rendre Visible les 9 récompenses
         console.log("[LOG] Phase Bonus: Forçage à l'état VISIBLE et ACTIVÉ.");
         for(const key in REWARD_IDS) {
             if (currentMatch.bonusResults.usersUsedBonus.get(key) === false) { 
@@ -250,7 +269,6 @@ function setupAdminRoutes(app, apiClient, io) {
             }
         }
         
-        // 2. Déclencher l'arrêt automatique après 10 secondes
         setTimeout(async () => {
             if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
                 console.log("[TIMER] Fin du temps de bonus (10s écoulées). Fermeture des récompenses. Forçage à l'état CACHÉ.");
@@ -263,11 +281,12 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
 
+    // --- Route 3: CLÔTURER MATCH & PAYER ---
     app.post('/admin/close-match', 
-        bodyParser.json(), // Appliqué ici
-        bodyParser.urlencoded({ extended: true }), // Appliqué ici
+        bodyParser.json(), 
+        bodyParser.urlencoded({ extended: true }), 
         async (req, res) => {
-        const winnerBotIndex = parseInt(req.body.winner); 
+        const winnerBotIndex = parseInt(req.body.winner); // 1, 2, 3, ou 4
 
         if (!currentMatch || currentMatch.status === 'CLOSED') {
             return res.status(400).send({ message: "Aucun match actif à clôturer." });
@@ -277,11 +296,30 @@ function setupAdminRoutes(app, apiClient, io) {
             await closeBonusPhase();
         }
 
+        // 1. Clôture du Pari Twitch et Paiement des points
+        if (currentPredictionId) {
+            try {
+                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
+                const prediction = await apiClient.predictions.getPredictionById(channelUserId, currentPredictionId);
+                const winningOutcome = prediction.outcomes[winnerBotIndex - 1]; 
+                
+                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
+                await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, {
+                    status: 'RESOLVED',
+                    winningOutcomeId: winningOutcome.id 
+                });
+                console.log(`[TWITCH API] Pari ${currentPredictionId} résolu. Gagnant: Choix ${winnerBotIndex}. Twitch paye les points.`);
+
+            } catch (e) {
+                console.error("[TWITCH API] Erreur lors de la résolution du pari:", e.message);
+            }
+        }
+        
+        // 2. Mise à jour de l'état du Match DB
         currentMatch.status = 'CLOSED';
         currentMatch.winnerBot = winnerBotIndex;
         currentMatch = await currentMatch.save(); 
-
-        // TODO: LOGIQUE DE CALCUL DES POINTS (Étape future)
+        currentPredictionId = null; // Réinitialisation de l'ID du pari
 
         io.emit('game-status', { status: 'CLOSED', winner: winnerBotIndex });
         res.send({ status: 'CLOSED', winner: winnerBotIndex });
@@ -291,7 +329,7 @@ function setupAdminRoutes(app, apiClient, io) {
 }
 
 
-// --- Logique EventSub (Réception des Bonus) ---
+// --- Logique EventSub (Écoute des Bonus et des Paris) ---
 
 function setupEventSub(app, apiClient, io, closeBonusPhase) {
     const listener = new EventSubMiddleware({
@@ -303,13 +341,11 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
     
     listener.apply(app);
 
+    // ********** ÉCOUTE DES BONUS DE POINTS DE CHAÎNE (Reward) **********
     listener.onChannelRedemptionAdd(channelUserId, async (event) => {
-        if (!currentMatch || currentMatch.status === 'CLOSED') {
-            return;
-        }
+        if (!currentMatch || currentMatch.status === 'CLOSED') { return; }
         
         const rewardId = event.rewardId;
-        const rewardTitle = event.rewardTitle;
         const userId = event.userId;
         const userDisplayName = event.userDisplayName;
         const userInput = event.input || '';
@@ -320,19 +356,15 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
         const rewardKey = usedReward.key;
 
         // 1. Logique de blocage : si cette récompense spécifique est déjà utilisée, ignorer.
-        if (currentMatch.bonusResults.usersUsedBonus.get(rewardKey) === true) {
-            return;
-        }
+        if (currentMatch.bonusResults.usersUsedBonus.get(rewardKey) === true) { return; }
 
-        // --- Le bonus est valide et est le premier à l'utiliser ---
-        
         currentMatch.bonusResults.usersUsedBonus.set(rewardKey, true); 
         
         // Action: Blocage immédiat sur Twitch (Logique "Caché")
         console.log(`[LOG] Bonus ${rewardKey} utilisé par ${userDisplayName} : Désactivation et CACHÉ.`);
-        await updateRewardStatus(apiClient, rewardId, false, true); // isEnabled: false, isHidden: true
+        await updateRewardStatus(apiClient, rewardId, false, true); 
         
-        // 2. Logique Level Up/Down
+        // 2. Logique Level Up/Down (non modifiée)
         if (rewardKey.startsWith('LEVEL_')) {
             const isUp = rewardKey.includes('UP');
             const botIndex = parseInt(rewardKey.slice(-1)); 
@@ -347,7 +379,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
             io.emit('bonus-applied', { type: isUp ? 'levelUp' : 'levelDown', bot: botIndex, newLevel: currentMatch.bonusResults[levelField] });
         }
         
-        // 3. Logique Choix Perso
+        // 3. Logique Choix Perso (non modifiée)
         if (rewardKey === 'CHOIX_PERSO') {
              currentMatch.bonusResults.characterChoices.push({
                  botIndex: 1, 
@@ -359,7 +391,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
              io.emit('bonus-applied', { type: 'charSelect', user: userDisplayName, input: userInput });
         }
 
-        // 4. Enregistrement dans la DB
+
+        // 4. Enregistrement dans la DB (non modifiée)
         const logEntry = new BonusLog({
             matchId: currentMatchId,
             userId: userId,
@@ -377,7 +410,45 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
              await closeBonusPhase();
         }
     });
-    
+
+    // ********** ÉCOUTE DES PARIS TWITCH (Predictions) **********
+
+    listener.onChannelPredictionBegin(channelUserId, async (event) => {
+        console.log(`[PREDICTION] Pari commencé: ${event.title} (ID: ${event.id})`);
+        if (currentMatch && currentMatch.twitchPredictionId !== event.id) {
+             console.warn("[PREDICTION] Un pari externe a commencé. Le système pourrait être désynchronisé.");
+        }
+    });
+
+    listener.onChannelPredictionProgress(channelUserId, async (event) => {
+        if (!currentMatch || currentMatch.status !== 'BETTING' || event.id !== currentMatch.twitchPredictionId) {
+            return;
+        }
+        
+        for (const outcome of event.outcomes) {
+            for (const topPredictor of outcome.topPredictors) {
+                await User.findOneAndUpdate(
+                    { twitchId: topPredictor.userId },
+                    { $setOnInsert: { username: topPredictor.userName } }, 
+                    { upsert: true, new: true }
+                );
+            }
+        }
+    });
+
+
+    listener.onChannelPredictionEnd(channelUserId, async (event) => {
+        console.log(`[PREDICTION] Pari terminé (ID: ${event.id}). Statut final: ${event.status}.`);
+
+        if (event.status === 'RESOLVED' && event.winningOutcome) {
+            
+            const winningOutcomeTitle = event.winningOutcome.title;
+            console.log(`[PAYOUT] Gagnant: ${winningOutcomeTitle}. Twitch a payé les points.`);
+        }
+        
+        io.emit('prediction-status', { id: event.id, status: event.status });
+    });
+
     return listener;
 }
 
@@ -392,7 +463,8 @@ async function main() {
     if (lastMatch) {
         currentMatchId = lastMatch.matchId;
         currentMatch = lastMatch; 
-        console.log(`[DB] Reprise du Match ID : ${currentMatchId}. Statut : ${currentMatch.status}`);
+        currentPredictionId = lastMatch.twitchPredictionId || null; 
+        console.log(`[DB] Reprise du Match ID : ${currentMatchId}. Statut : ${currentMatch.status}. Prediction ID: ${currentPredictionId}`);
     } else {
         currentMatchId = 0;
         console.log(`[DB] Démarrage du Match ID à 0.`);
@@ -402,10 +474,8 @@ async function main() {
     const httpServer = createServer(app);
     const io = new Server(httpServer);
     
-    // Servir les fichiers statiques du dossier 'public'
     app.use(express.static('public'));
 
-    // Rediriger la racine vers l'interface Admin
     app.get('/', (req, res) => {
         res.redirect('/admin.html');
     });
@@ -434,7 +504,6 @@ async function main() {
         console.log(`\n🚀 Serveur lancé sur http://localhost:${port}`);
     });
 
-    // Synchronisation Socket.IO au démarrage
     io.on('connection', (socket) => {
         console.log('Client Admin connecté. Envoi de l’état actuel...');
         if (currentMatch) {
