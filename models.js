@@ -42,7 +42,7 @@ const MatchSchema = new mongoose.Schema({
     },
     status: { // État du match : BETTING, BONUS_ACTIVE, IN_PROGRESS, CLOSED
         type: String,
-        enum: ['BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED'],
+        enum: ['BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED', 'AWAITING_PREDICTION'],
         default: 'CLOSED'
     },
     bettingResult: { // Le résultat des paris Twitch natifs

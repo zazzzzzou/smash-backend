@@ -7,6 +7,7 @@ const { ApiClient } = require('@twurple/api');
 const { EventSubMiddleware } = require('@twurple/eventsub-http');
 const bodyParser = require('body-parser'); 
 const { promises: fs } = require('fs');
+const path = require('path');
 
 // Imports DB et Modèles
 const connectDB = require('./db'); 
@@ -20,6 +21,9 @@ const channelUsername = process.env.CHANNEL_USERNAME;
 const eventSubSecret = process.env.EVENTSUB_SECRET;
 const hostName = process.env.HOSTNAME; 
 const port = process.env.PORT || 3000;
+
+// Nom du fichier de tokens
+const TOKEN_FILE_PATH = path.join(__dirname, 'tokens.json');
 
 // Noms de toutes les 9 récompenses
 const ALL_REWARDS = [
@@ -41,12 +45,15 @@ let currentPredictionId = null;
 const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 
+// NOUVELLE CONSTANTE : Marqueur pour identifier les paris de jeu (nécessite d'être défini dans .env)
+const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
+
 
 // --- Gestion des Tokens ---
 async function getAuthProvider() {
     let tokenData = null;
     try {
-        const data = await fs.readFile('tokens.json', 'utf-8');
+        const data = await fs.readFile(TOKEN_FILE_PATH, 'utf-8');
         const rawData = JSON.parse(data);
         tokenData = {
             accessToken: rawData.accessToken || rawData.access_token,
@@ -76,8 +83,12 @@ async function getAuthProvider() {
         clientId,
         clientSecret,
         onRefresh: async (userId, newTokenData) => {
-            console.log("🔄 Rafraîchissement du token...");
-            try { await fs.writeFile('tokens.json', JSON.stringify(newTokenData, null, 4), 'utf-8'); } catch(e) { /* Ignorer sur Render */ }
+            console.log("🔄 Rafraîchissement du token... Écriture du nouveau token dans tokens.json");
+            try { 
+                await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(newTokenData, null, 4), 'utf-8'); 
+            } catch(e) { 
+                console.error("ERREUR CRITIQUE: Échec de l'écriture du nouveau token dans tokens.json:", e.message);
+            }
         }
     });
 
@@ -89,7 +100,7 @@ async function getAuthProvider() {
     return authProvider;
 }
 
-// --- Fonctions Utilitaires de Jeu (Inchangement) ---
+// --- Fonctions Utilitaires de Jeu (updatePredictionStatus supprimé) ---
 
 async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
     if (!rewardId) return;
@@ -145,8 +156,9 @@ async function mapRewardNamesToIds(apiClient) {
 }
 
 
-// --- Routes d'Administration (Gérées par BLB) ---
+// --- Routes d'Administration (Simplifiées) ---
 
+// MODIFICATION: authProvider retiré car plus de PATCH
 function setupAdminRoutes(app, apiClient, io) {
     
     async function closeBonusPhase() {
@@ -169,7 +181,7 @@ function setupAdminRoutes(app, apiClient, io) {
     app.post('/admin/set-hidden', async (req, res) => { /* ... */ });
 
 
-    // --- Route 1: DÉMARRER MATCH & CRÉER PARI ---
+    // --- Route 1: DÉMARRER MATCH & ATTENDRE PARI TWITCH ---
     app.post('/admin/start-match', 
         bodyParser.json(), 
         bodyParser.urlencoded({ extended: true }), 
@@ -178,31 +190,7 @@ function setupAdminRoutes(app, apiClient, io) {
             return res.status(400).send({ message: "Le match actuel n'est pas terminé." });
         }
 
-        const { title, outcomes, duration } = req.body;
-        
-        // 1. Création du Pari Twitch
-        let prediction;
-        try {
-            console.log(`[TWITCH API] Création du pari : "${title}" pour ${duration}s...`);
-            
-            const outcomeTitles = outcomes.map(o => o.title);
-            
-            // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
-            prediction = await apiClient.predictions.createPrediction(channelUserId, {
-                title: title,
-                outcomes: outcomeTitles,
-                autoLockAfter: duration 
-            });
-            
-            currentPredictionId = prediction.id;
-            console.log(`[TWITCH API] Pari créé avec succès. ID: ${currentPredictionId}`);
-
-        } catch (error) {
-            console.error("[TWITCH API] Erreur lors de la création du pari:", error);
-            return res.status(500).send({ message: `Erreur Twitch API : Échec de la création du pari. (${error.message})` });
-        }
-
-        // 2. Création du Match DB
+        // 1. Création du Match DB (Le pari Twitch est lancé manuellement par BLB)
         currentMatchId++; 
         const initialBonusMap = new Map();
         for (const reward of ALL_REWARDS) { initialBonusMap.set(reward.key, false); } 
@@ -210,8 +198,9 @@ function setupAdminRoutes(app, apiClient, io) {
         try {
             const newMatch = new Match({
                 matchId: currentMatchId, 
-                twitchPredictionId: currentPredictionId, 
-                status: 'BETTING',
+                // twitchPredictionId est null au départ, rempli par EventSub
+                twitchPredictionId: null, 
+                status: 'AWAITING_PREDICTION', // NOUVEAU STATUT
                 bonusResults: {
                     bot1Level: 8, bot2Level: 8, bot3Level: 8, bot4Level: 8,
                     characterChoices: [],
@@ -219,46 +208,35 @@ function setupAdminRoutes(app, apiClient, io) {
                 }
             });
             currentMatch = await newMatch.save(); 
+            currentPredictionId = null; 
         } catch (error) {
             console.error("[DB] Erreur lors de la création du Match DB:", error);
-            // CORRECTION: Utilisation de apiClient.predictions (au pluriel) pour l'annulation
-            await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, { status: 'CANCELED' }); 
             return res.status(500).send({ message: "Erreur DB : Échec de la création du match." });
         }
         
-        // 3. Mise à jour des récompenses et réponse
-        console.log("[LOG] Match Démarré: Forçage des récompenses à l'état CACHÉ.");
+        // 2. Mise à jour des récompenses et réponse
+        console.log("[LOG] Match Démarré: En attente de pari Twitch. Récompenses CACHÉES.");
         for(const key in REWARD_IDS) {
             await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
         }
 
         io.emit('game-status', { status: currentMatch.status, matchId: currentMatchId });
-        res.send({ status: currentMatch.status, matchId: currentMatchId, predictionId: currentPredictionId });
+        res.send({ status: currentMatch.status, matchId: currentMatchId, message: `Attente du pari Twitch avec marqueur: ${GAME_PREDICTION_TITLE_MARKER}` });
     });
 
 
-    // --- Route 2: AUTORISER BONUS ---
+    // --- Route 2: AUTORISER BONUS (Simplifiée : ne verrouille plus le pari) ---
     app.post('/admin/allow-bonus', 
         bodyParser.json(), 
         bodyParser.urlencoded({ extended: true }), 
         async (req, res) => {
-        if (!currentMatch) {
-            return res.status(400).send({ message: "Veuillez démarrer un match avant d'autoriser les bonus." });
+        if (!currentMatch || currentMatch.status !== 'BETTING') {
+            // Le statut BETTING est mis par l'EventSub (dès que le pari Twitch est détecté)
+            return res.status(400).send({ message: "Le match n'est pas dans la phase BETTING. Le pari Twitch doit être lancé et actif." });
         }
         
-        // 1. Clôturer les paris Twitch si toujours ouverts
-        if (currentPredictionId) {
-             try {
-                // Verrouille le pari pour empêcher de nouveaux votes
-                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
-                await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, { status: 'LOCKED' });
-                console.log(`[TWITCH API] Pari ${currentPredictionId} verrouillé (LOCKED).`);
-            } catch (e) {
-                console.error("[TWITCH API] Erreur lors du verrouillage du pari:", e.message);
-            }
-        }
-        
-        // 2. Mise à jour de l'état du match et de la logique Bonus (inchangée)
+        // La clôture du pari Twitch est maintenant manuelle (ou automatique via Twitch)
+        console.log("[LOG] Phase Bonus: Transition vers BONUS_ACTIVE.");
         currentMatch.status = 'BONUS_ACTIVE';
         currentMatch = await currentMatch.save();
 
@@ -271,7 +249,7 @@ function setupAdminRoutes(app, apiClient, io) {
         
         setTimeout(async () => {
             if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
-                console.log("[TIMER] Fin du temps de bonus (10s écoulées). Fermeture des récompenses. Forçage à l'état CACHÉ.");
+                console.log("[TIMER] Fin du temps de bonus (10s écoulées). Fermeture des récompenses.");
                 await closeBonusPhase();
             }
         }, 10000); // 10 secondes
@@ -281,7 +259,7 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
 
-    // --- Route 3: CLÔTURER MATCH & PAYER ---
+    // --- Route 3: CLÔTURER MATCH & PAIEMENT (Simplifiée : ne résout plus le pari) ---
     app.post('/admin/close-match', 
         bodyParser.json(), 
         bodyParser.urlencoded({ extended: true }), 
@@ -296,40 +274,24 @@ function setupAdminRoutes(app, apiClient, io) {
             await closeBonusPhase();
         }
 
-        // 1. Clôture du Pari Twitch et Paiement des points
-        if (currentPredictionId) {
-            try {
-                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
-                const prediction = await apiClient.predictions.getPredictionById(channelUserId, currentPredictionId);
-                const winningOutcome = prediction.outcomes[winnerBotIndex - 1]; 
-                
-                // CORRECTION: Utilisation de apiClient.predictions (au pluriel)
-                await apiClient.predictions.endPrediction(channelUserId, currentPredictionId, {
-                    status: 'RESOLVED',
-                    winningOutcomeId: winningOutcome.id 
-                });
-                console.log(`[TWITCH API] Pari ${currentPredictionId} résolu. Gagnant: Choix ${winnerBotIndex}. Twitch paye les points.`);
-
-            } catch (e) {
-                console.error("[TWITCH API] Erreur lors de la résolution du pari:", e.message);
-            }
-        }
+        // Le paiement est géré par Twitch lorsque BLB clôture le pari dans son interface.
+        console.log(`[JEU] Clôture DB du Match ${currentMatch.matchId}. Paiement des points attendu de Twitch.`);
         
-        // 2. Mise à jour de l'état du Match DB
+        // 1. Mise à jour de l'état du Match DB
         currentMatch.status = 'CLOSED';
         currentMatch.winnerBot = winnerBotIndex;
         currentMatch = await currentMatch.save(); 
         currentPredictionId = null; // Réinitialisation de l'ID du pari
 
         io.emit('game-status', { status: 'CLOSED', winner: winnerBotIndex });
-        res.send({ status: 'CLOSED', winner: winnerBotIndex });
+        res.send({ status: 'CLOSED', winner: winnerBotIndex, message: "Match clôturé. Assurez-vous de résoudre le pari Twitch manuellement." });
     });
     
     return { closeBonusPhase };
 }
 
 
-// --- Logique EventSub (Écoute des Bonus et des Paris) ---
+// --- Logique EventSub (Écoute des Paris) ---
 
 function setupEventSub(app, apiClient, io, closeBonusPhase) {
     const listener = new EventSubMiddleware({
@@ -355,13 +317,12 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
         
         const rewardKey = usedReward.key;
 
-        // 1. Logique de blocage : si cette récompense spécifique est déjà utilisée, ignorer.
         if (currentMatch.bonusResults.usersUsedBonus.get(rewardKey) === true) { return; }
 
         currentMatch.bonusResults.usersUsedBonus.set(rewardKey, true); 
         
-        // Action: Blocage immédiat sur Twitch (Logique "Caché")
         console.log(`[LOG] Bonus ${rewardKey} utilisé par ${userDisplayName} : Désactivation et CACHÉ.`);
+        // NOTE: updateRewardStatus ne fait pas de PATCH sur les prédictions, il est sûr.
         await updateRewardStatus(apiClient, rewardId, false, true); 
         
         // 2. Logique Level Up/Down (non modifiée)
@@ -414,24 +375,39 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
     // ********** ÉCOUTE DES PARIS TWITCH (Predictions) **********
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
-        console.log(`[PREDICTION] Pari commencé: ${event.title} (ID: ${event.id})`);
-        if (currentMatch && currentMatch.twitchPredictionId !== event.id) {
-             console.warn("[PREDICTION] Un pari externe a commencé. Le système pourrait être désynchronisé.");
+        // NOUVEAU: Vérifie le marqueur de titre
+        if (!event.title.startsWith(GAME_PREDICTION_TITLE_MARKER)) {
+            console.log(`[PREDICTION IGNORED] Pari sans marqueur : ${event.title}`);
+            return;
+        }
+
+        console.log(`[PREDICTION TRACKED] Pari de jeu commencé: ${event.title} (ID: ${event.id})`);
+
+        if (currentMatch && currentMatch.status === 'AWAITING_PREDICTION') {
+             // Mise à jour du match DB avec l'ID du pari Twitch
+            currentMatch.twitchPredictionId = event.id;
+            currentMatch.status = 'BETTING'; 
+            currentMatch = await currentMatch.save();
+            currentPredictionId = event.id;
+
+            console.log(`[JEU] Match ${currentMatch.matchId} lié au pari Twitch. Statut: BETTING.`);
+            io.emit('game-status', { status: currentMatch.status, matchId: currentMatch.matchId, predictionId: currentPredictionId });
+        } else {
+             console.warn("[PREDICTION WARNING] Nouveau pari de jeu détecté, mais aucun match DB n'attend le pari. Ignoré.");
         }
     });
 
     listener.onChannelPredictionProgress(channelUserId, async (event) => {
-        if (!currentMatch || currentMatch.status !== 'BETTING' || event.id !== currentMatch.twitchPredictionId) {
-            return;
-        }
-        
-        for (const outcome of event.outcomes) {
-            for (const topPredictor of outcome.topPredictors) {
-                await User.findOneAndUpdate(
-                    { twitchId: topPredictor.userId },
-                    { $setOnInsert: { username: topPredictor.userName } }, 
-                    { upsert: true, new: true }
-                );
+        if (event.id === currentPredictionId) {
+             // Continue de suivre les topPredictors si vous voulez construire un classement
+             for (const outcome of event.outcomes) {
+                for (const topPredictor of outcome.topPredictors) {
+                    await User.findOneAndUpdate(
+                        { twitchId: topPredictor.userId },
+                        { $setOnInsert: { username: topPredictor.userName } }, 
+                        { upsert: true, new: true }
+                    );
+                }
             }
         }
     });
@@ -440,13 +416,17 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
         console.log(`[PREDICTION] Pari terminé (ID: ${event.id}). Statut final: ${event.status}.`);
 
-        if (event.status === 'RESOLVED' && event.winningOutcome) {
+        if (event.id === currentPredictionId && currentMatch && currentMatch.status !== 'CLOSED') {
             
-            const winningOutcomeTitle = event.winningOutcome.title;
-            console.log(`[PAYOUT] Gagnant: ${winningOutcomeTitle}. Twitch a payé les points.`);
+            if (event.status === 'RESOLVED' && event.winningOutcome) {
+                const winningOutcomeTitle = event.winningOutcome.title;
+                console.log(`[PAYOUT CONFIRMATION] Gagnant: ${winningOutcomeTitle}. Twitch a payé les points.`);
+                
+                io.emit('prediction-status', { id: event.id, status: event.status, winner: winningOutcomeTitle });
+            } else {
+                 io.emit('prediction-status', { id: event.id, status: event.status });
+            }
         }
-        
-        io.emit('prediction-status', { id: event.id, status: event.status });
     });
 
     return listener;
@@ -490,6 +470,7 @@ async function main() {
         process.exit(1);
     }
     
+    // MODIFICATION : authProvider retiré
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
     
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase);
