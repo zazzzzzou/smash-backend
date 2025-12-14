@@ -10,7 +10,7 @@ const tokenFile = 'tokens.json';
 const redirectUri = 'http://localhost:8080';
 
 // NOUVEAU CODE REÇU DE VOTRE AMI (À REMPLACER !!)
-const AUTH_CODE_RECEIVED = 'hslel7rybanfqle2k3t8ifen342vm1'; 
+const AUTH_CODE_RECEIVED = '71k4ika59v6j7g2t0auckyfi8wpc0q'; 
 // Assurez-vous que c'est le code le plus récent !
 
 async function exchangeTokenHttp() {

@@ -2,155 +2,213 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SMASH BETTING - Administration</title>
+    <title>Administration Smash Betting</title>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        .action-group { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 6px; }
-        button { padding: 10px 15px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; color: white; margin-right: 10px; }
-        #startMatchBtn { background-color: #4CAF50; }
-        #allowBonusBtn { background-color: #f44336; }
-        #closeMatchBtn { background-color: #008CBA; }
-        #setActiveBtn { background-color: #4CAF50; } 
-        #setHiddenBtn { background-color: #333; } 
-        .info { margin-top: 15px; padding: 10px; background-color: #eee; border-radius: 4px; }
-        label { display: block; margin-top: 10px; font-weight: bold; }
-        input[type="text"], input[type="number"] { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f9; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        .status-box { border: 2px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 4px; background-color: #e9ecef; }
+        .status-box p { margin: 5px 0; }
+        .status-box strong { font-weight: bold; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        #start-match { background-color: #28a745; color: white; }
+        #start-bonus { background-color: #ffc107; color: #333; }
+        #stop-bonus { background-color: #dc3545; color: white; }
+        #close-match { background-color: #007bff; color: white; }
+        #bonus-log li { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #eee; }
+        .success { color: green; }
+        .failure { color: red; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛠️ Panneau Admin Smash Betting</h1>
+        <h1>🛠️ Panneau d'Administration Smash Betting</h1>
 
-        <div class="action-group">
-            <h2>Configuration du Pari (Prediction)</h2>
-            <form id="predictionConfigForm">
-                <label for="title">Titre du Pari :</label>
-                <input type="text" id="title" name="title" value="Quel Bot va gagner ?" required>
-
-                <label for="outcome1">Choix 1 (Bot 1) :</label>
-                <input type="text" id="outcome1" name="outcome1" value="Bot 1 (Kirby)" required>
-                <label for="outcome2">Choix 2 (Bot 2) :</label>
-                <input type="text" id="outcome2" name="outcome2" value="Bot 2 (Samus)" required>
-                <label for="outcome3">Choix 3 (Bot 3) :</label>
-                <input type="text" id="outcome3" name="outcome3" value="Bot 3 (Captain Falcon)" required>
-                <label for="outcome4">Choix 4 (Bot 4) :</label>
-                <input type="text" id="outcome4" name="outcome4" value="Bot 4 (Pikachu)" required>
-
-                <label for="duration">Durée du Pari (en secondes) :</label>
-                <input type="number" id="duration" name="duration" value="90" min="30" max="1800" required>
-            </form>
+        <div class="status-box">
+            <h2>Statut Actuel du Match</h2>
+            <p><strong>Match ID:</strong> <span id="current-match-id">N/A</span></p>
+            <p><strong>Statut:</strong> <span id="current-status">CLOSED</span></p>
+            <p><strong>Pari Twitch ID:</strong> <span id="current-prediction-id">N/A</span></p>
         </div>
 
-        <div class="action-group">
-            <h2>Phases de Jeu</h2>
-            <button id="startMatchBtn">1. DÉMARRER NOUVEAU MATCH & LANCER PARI</button>
-            <button id="allowBonusBtn">2. AUTORISER BONUS (10s)</button>
+        <h2>Contrôles du Cycle de Jeu</h2>
+        <div id="game-controls">
+            <button id="start-match" onclick="startNewMatch()">Démarrer Nouveau Match</button>
+            <button id="close-match" onclick="closeMatchDb()">Clôturer Match DB (Final)</button>
         </div>
+        <hr>
 
-        <div class="action-group">
-            <h2>Clôture et Résultats</h2>
-            <form id="closeForm">
-                <label for="winner">Gagnant (Bot 1-4) :</label>
-                <input type="number" id="winner" name="winner" min="1" max="4" required>
-                <button type="submit" id="closeMatchBtn">3. CLÔTURER MATCH & PAYER</button>
-            </form>
+        <h2>Contrôles de la Phase de Bonus</h2>
+        <div id="bonus-controls">
+            <p>
+                <label for="bonus-duration">Durée du Timer (secondes):</label>
+                <input type="number" id="bonus-duration" value="60" min="10" max="300" style="width: 80px;">
+            </p>
+            <button id="start-bonus" onclick="startBonusPhase()">Démarrer Phase Bonus</button>
+            <button id="stop-bonus" onclick="stopBonusPhase()">Arrêter Phase Bonus Manuellement</button>
         </div>
+        <hr>
+
+        <h2>Statut des Bots et Bonus Utilisés</h2>
+        <p>Ce tableau indique les actions Level Up/Down/Choix Perso qui sont **bloquées**.</p>
+        <table border="1" width="100%">
+            <thead>
+                <tr>
+                    <th>Bot</th>
+                    <th>Niveau Actuel (DB)</th>
+                    <th>Level UP Bloqué</th>
+                    <th>Level DOWN Bloqué</th>
+                    <th>Choix Perso Bloqué</th>
+                </tr>
+            </thead>
+            <tbody id="bot-status-table">
+                </tbody>
+        </table>
         
-        <div class="action-group">
-            <h2>⚡️ Contrôle d'État Manuel (Pour Débug Extrême)</h2>
-            <button id="setActiveBtn">Forcer Actif/Visible</button>
-            <button id="setHiddenBtn">Forcer Caché/Inactif (Repos)</button>
-            <p>Utilisez ceci uniquement si le cycle est rompu.</p>
-        </div>
-
-        <div class="info">
-            Statut Actuel du Jeu : <span id="gameStatus">CHARGEMENT...</span><br>
-            Match ID : <span id="matchId">N/A</span>
-        </div>
+        <h3>Log des Récompenses Utilisées (Match Actuel)</h3>
+        <ul id="bonus-log">
+            </ul>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const baseUrl = window.location.origin;
+        const apiBaseUrl = window.location.origin;
 
-        function updateStatusDisplay(status, matchId) {
-            const statusText = status || 'N/A'; 
-            document.getElementById('gameStatus').textContent = statusText + ' (MAJ)';
-            if (matchId) {
-                document.getElementById('matchId').textContent = matchId;
-            }
-        }
+        const statusDisplay = document.getElementById('current-status');
+        const matchIdDisplay = document.getElementById('current-match-id');
+        const predictionIdDisplay = document.getElementById('current-prediction-id');
+        const botStatusTable = document.getElementById('bot-status-table');
+        const bonusLogList = document.getElementById('bonus-log');
+        const bonusDurationInput = document.getElementById('bonus-duration');
 
-        socket.on('game-status', (data) => {
-            updateStatusDisplay(data.status, data.matchId);
-        });
+        let currentMatchData = null;
 
-        // Fonction pour envoyer une requête POST
-        async function sendAction(endpoint, body = {}) {
-            try {
-                const response = await fetch(`${baseUrl}/admin/${endpoint}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body)
-                });
-                
-                if (!response.ok) {
-                    // Tente de lire le message d'erreur si la réponse n'est pas OK
-                    const errorData = await response.json().catch(() => ({ message: "Erreur serveur inconnue." }));
-                    throw new Error(`HTTP Error! Status: ${response.status}. Message: ${errorData.message}`);
+        // Fonction pour mettre à jour l'interface avec les données du match
+        function updateUI(data) {
+            currentMatchData = data;
+
+            matchIdDisplay.textContent = data.matchId || 'N/A';
+            statusDisplay.textContent = data.status || 'CLOSED';
+            predictionIdDisplay.textContent = data.twitchPredictionId || 'N/A';
+            
+            // Logique des contrôles activés/désactivés
+            document.getElementById('start-match').disabled = data.status !== 'CLOSED';
+            document.getElementById('start-bonus').disabled = data.status !== 'BETTING';
+            document.getElementById('stop-bonus').disabled = data.status !== 'BONUS_ACTIVE';
+            document.getElementById('close-match').disabled = data.status === 'CLOSED';
+
+            // Mise à jour du tableau des statuts des bots
+            botStatusTable.innerHTML = '';
+            if (data.bonusResults && data.bonusResults.botLevels) {
+                for (let i = 0; i < data.bonusResults.botLevels.length; i++) {
+                    const row = botStatusTable.insertRow();
+                    row.insertCell().textContent = `Bot ${i + 1}`;
+                    row.insertCell().textContent = data.bonusResults.botLevels[i];
+                    row.insertCell().textContent = data.bonusResults.levelUpUsedForBot[i] ? 'OUI' : 'NON';
+                    row.insertCell().textContent = data.bonusResults.levelDownUsedForBot[i] ? 'OUI' : 'NON';
+                    row.insertCell().textContent = data.bonusResults.charSelectUsedForBot[i] ? 'OUI' : 'NON';
                 }
-                const data = await response.json();
-                
-                console.log(`Action ${endpoint} réussie. Réponse reçue:`, data);
-                updateStatusDisplay(data.status, data.matchId);
-
-            } catch (error) {
-                alert(`Erreur lors de l'action ${endpoint}. Consultez la console.`);
-                console.error(error);
             }
         }
+        
+        // --- API Calls ---
 
-        // --- Listeners de Flux de Jeu ---
-        document.getElementById('startMatchBtn').addEventListener('click', () => {
-            const form = document.getElementById('predictionConfigForm');
-            const outcomes = [
-                { title: form.outcome1.value, id: 1 },
-                { title: form.outcome2.value, id: 2 },
-                { title: form.outcome3.value, id: 3 },
-                { title: form.outcome4.value, id: 4 },
-            ];
-            
-            const betConfig = {
-                title: form.title.value,
-                outcomes: outcomes,
-                duration: parseInt(form.duration.value, 10)
-            };
-            
-            sendAction('start-match', betConfig);
-        });
+        function startNewMatch() {
+            if (currentMatchData && currentMatchData.status !== 'CLOSED') {
+                alert('Veuillez d\'abord clôturer le match actuel.');
+                return;
+            }
+            fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    alert(`Match Démarré. Statut: ${data.status}. Lancez le pari Twitch (Titre: [SMASH BET]...).`);
+                    updateUI(data);
+                })
+                .catch(error => console.error('Erreur au démarrage du match:', error));
+        }
 
-        document.getElementById('allowBonusBtn').addEventListener('click', () => {
-            sendAction('allow-bonus');
-        });
+        function startBonusPhase() {
+            const duration = bonusDurationInput.value;
+            fetch(`${apiBaseUrl}/admin/start-bonus`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration: duration })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(`Phase Bonus Démarrée pour ${duration} secondes.`);
+                updateUI(data);
+            })
+            .catch(error => console.error('Erreur au démarrage des bonus:', error));
+        }
 
-        document.getElementById('closeForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const winnerBot = document.getElementById('winner').value;
-            sendAction('close-match', { winner: winnerBot });
+        function stopBonusPhase() {
+            fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    alert('Phase Bonus arrêtée manuellement.');
+                    updateUI(data);
+                })
+                .catch(error => console.error('Erreur à l\'arrêt des bonus:', error));
+        }
+        
+        function closeMatchDb() {
+             if (!confirm("ATTENTION : Le pari Twitch doit être RESOLVED manuellement avant de clôturer la DB. Continuer?")) return;
+             fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    alert('Match DB clôturé.');
+                    updateUI(data);
+                })
+                .catch(error => console.error('Erreur à la clôture du match:', error));
+        }
+
+
+        // --- Socket.IO Handlers ---
+        
+        socket.on('game-status', (data) => {
+            updateUI(data);
+            // Récupérer le match complet après un changement d'état important
+            fetchCurrentMatchData();
         });
         
-        // --- Listeners de Contrôle Manuel ---
-        document.getElementById('setActiveBtn').addEventListener('click', () => {
-            sendAction('set-active');
+        socket.on('bonus-update', (data) => {
+            const listItem = document.createElement('li');
+            const statusClass = data.isSuccess ? 'success' : 'failure';
+            const statusText = data.isSuccess ? 'SUCCÈS' : 'ÉCHEC';
+            
+            listItem.className = statusClass;
+            listItem.innerHTML = `[${statusText}] **${data.user}** a utilisé **${data.type}** avec l'entrée: 
+                                  "${data.input}". ${data.message ? `(${data.message})` : ''}`;
+            
+            bonusLogList.prepend(listItem);
         });
-        document.getElementById('setHiddenBtn').addEventListener('click', () => {
-            sendAction('set-hidden');
-        });
+
+        function fetchCurrentMatchData() {
+            fetch(`${apiBaseUrl}/api/current-match`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status) {
+                         updateUI(data);
+                         // Remplir le log si des données de log existent
+                         if (data.bonusResults && data.bonusResults.log) {
+                            bonusLogList.innerHTML = '';
+                            data.bonusResults.log.reverse().forEach(log => {
+                                const listItem = document.createElement('li');
+                                listItem.className = 'success'; // On ne log que les succès dans la DB
+                                listItem.innerHTML = `[SUCCÈS] **${log.user}** a utilisé **${log.reward}** avec l'entrée: 
+                                                      "${log.input}" le ${new Date(log.timestamp).toLocaleTimeString()}`;
+                                bonusLogList.appendChild(listItem);
+                            });
+                         }
+                    }
+                })
+                .catch(error => console.error('Erreur lors de la récupération de l\'état initial:', error));
+        }
+
+        // Initialisation de la page
+        document.addEventListener('DOMContentLoaded', fetchCurrentMatchData);
 
     </script>
 </body>

@@ -1,112 +1,89 @@
 // models.js
+
 const mongoose = require('mongoose');
 
-// --- 1. User Schema (Classement des joueurs) ---
+// --- 1. Schéma pour les Logs de Bonus (Utilisé dans le Match Schema) ---
 
-const UserSchema = new mongoose.Schema({
-    // ID Twitch de l'utilisateur (unique)
-    twitchId: {
+// Bien que les logs puissent être stockés dans le Match, les garder séparés (ou juste dans le Match) est possible.
+// Pour la simplicité et le classement, nous allons l'inclure dans le Match (comme sous-document) et créer une collection BonusLog séparée pour les logs détaillés si besoin, bien que ce soit optionnel si vous utilisez le log dans Match.
+
+// Si BonusLog est une collection indépendante (pour le classement des bonus) :
+const bonusLogSchema = new mongoose.Schema({
+    matchId: { type: Number, required: true },
+    userId: { type: String, required: true },
+    bonusType: { type: String, required: true },
+    targetBot: { type: Number, default: null },
+    input: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now }
+});
+const BonusLog = mongoose.model('BonusLog', bonusLogSchema);
+
+
+// --- 2. Schéma Utilisateur (User) ---
+
+const userSchema = new mongoose.Schema({
+    twitchId: { type: String, required: true, unique: true },
+    username: { type: String, required: true },
+    
+    // NOUVEAUX CHAMPS pour les classements
+    totalPoints: { type: Number, default: 0 },
+    bonusUsedCount: { type: Number, default: 0 },
+
+    createdAt: { type: Date, default: Date.now }
+});
+const User = mongoose.model('User', userSchema);
+
+
+// --- 3. Schéma Match (Match) ---
+
+// Schéma pour le log interne au match
+const matchInternalLogSchema = new mongoose.Schema({
+    user: { type: String, required: true },
+    userId: { type: String, required: true },
+    reward: { type: String, required: true },
+    input: { type: String },
+    timestamp: { type: Date, default: Date.now }
+}, { _id: false });
+
+
+const matchSchema = new mongoose.Schema({
+    matchId: { type: Number, required: true, unique: true },
+    twitchPredictionId: { type: String, default: null },
+    
+    status: {
         type: String,
         required: true,
-        unique: true
+        // ENUMS mis à jour pour la stratégie d'écoute passive
+        enum: ['AWAITING_PREDICTION', 'BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED'], 
     },
-    // Nom d'utilisateur Twitch
-    username: {
-        type: String,
-        required: true
+    
+    winnerBot: { type: Number, default: null },
+
+    bonusResults: {
+        // Niveau de chaque bot (Index 0 = Bot 1, Index 3 = Bot 4)
+        botLevels: { type: [Number], default: [8, 8, 8, 8] },
+        
+        // Bloque un bot spécifique pour le Level UP/DOWN (True si déjà utilisé)
+        levelUpUsedForBot: { type: [Boolean], default: [false, false, false, false] },
+        levelDownUsedForBot: { type: [Boolean], default: [false, false, false, false] },
+        
+        // Bloque un bot spécifique pour le Choix Perso (True si déjà utilisé)
+        charSelectUsedForBot: { type: [Boolean], default: [false, false, false, false] },
+        
+        // Log des bonus utilisés
+        log: { type: [matchInternalLogSchema], default: [] }
     },
-    // Score pour le classement des paris corrects
-    scorePoints: {
-        type: Number,
-        default: 0
-    },
-    // Compteur de l'utilisation des bonus (pour le classement des bonus)
-    bonusUsedCount: {
-        type: Number,
-        default: 0
-    }
-}, { timestamps: true });
+    
+    createdAt: { type: Date, default: Date.now }
+});
+const Match = mongoose.model('Match', matchSchema);
 
 
-// --- 2. Match Schema (Pour suivre l'état du jeu) ---
+// --- Exportation des Modèles ---
 
-const MatchSchema = new mongoose.Schema({
-    matchId: { // Identifiant unique du match
-        type: Number,
-        required: true,
-        unique: true
-    },
-    twitchPredictionId: {
-        type: String,
-        required: false
-    },
-    status: { // État du match : BETTING, BONUS_ACTIVE, IN_PROGRESS, CLOSED
-        type: String,
-        enum: ['BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED', 'AWAITING_PREDICTION'],
-        default: 'CLOSED'
-    },
-    bettingResult: { // Le résultat des paris Twitch natifs
-        type: String, 
-        required: false 
-    },
-    bonusResults: { 
-        bot1Level: { type: Number, default: 8 },
-        bot2Level: { type: Number, default: 8 },
-        bot3Level: { type: Number, default: 8 },
-        bot4Level: { type: Number, default: 8 },
-        characterChoices: [ // Ex: { botIndex: 1, characterName: 'Samus' }
-            {
-                botIndex: Number,
-                characterName: String,
-                userId: String // Qui a choisi
-            }
-        ],
-        // CORRECTION CRITIQUE : Utiliser un Map pour stocker les états des 9 récompenses.
-        // Cela permet d'avoir des clés dynamiques (LEVEL_UP_1, LEVEL_DOWN_2, etc.)
-        usersUsedBonus: {
-            type: Map, 
-            of: Boolean // La valeur de chaque clé sera Vrai ou Faux
-        }
-    },
-    winnerBot: { // Le bot qui a réellement gagné (pour le calcul des points)
-        type: Number,
-        min: 1,
-        max: 4,
-        required: false
-    }
-}, { timestamps: true });
-
-
-// --- 3. Bonus Log Schema (Historique détaillé) ---
-
-const BonusLogSchema = new mongoose.Schema({
-    matchId: {
-        type: Number,
-        required: true,
-        ref: 'Match' // Référence au modèle Match
-    },
-    userId: {
-        type: String,
-        required: true,
-        ref: 'User' // Référence au modèle User
-    },
-    bonusType: { // LEVEL_UP_1, LEVEL_DOWN_3, CHARACTER_SELECT
-        type: String,
-        required: true
-    },
-    targetBot: { // 1, 2, 3, 4
-        type: Number,
-        required: true
-    },
-    input: { // Le personnage choisi ou la valeur du level
-        type: String
-    }
-}, { timestamps: true });
-
-
-// Création et exportation des Modèles
-const User = mongoose.model('User', UserSchema);
-const Match = mongoose.model('Match', MatchSchema);
-const BonusLog = mongoose.model('BonusLog', BonusLogSchema);
-
-module.exports = { User, Match, BonusLog };
+module.exports = {
+    User,
+    Match,
+    // Note: BonusLog est exporté ici si vous en avez besoin, mais la logique actuelle utilise le log interne au Match.
+    BonusLog 
+};
