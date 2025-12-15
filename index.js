@@ -11,7 +11,7 @@ const bodyParser = require('body-parser');
 const { promises: fs } = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
-const fetch = require('node-fetch'); // <-- 1. AJOUT DE NODE-FETCH
+const fetch = require('node-fetch'); // <== NÉCESSITE npm install node-fetch@2
 
 // Imports DB et Modèles
 const connectDB = require('./db'); 
@@ -174,7 +174,6 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
 // --- Routes d'Administration et API ---
 
 function setupAdminRoutes(app, apiClient, io) {
-    // ... (Reste des routes admin inchangé)
     
     async function closeBonusPhase() {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
@@ -190,34 +189,147 @@ function setupAdminRoutes(app, apiClient, io) {
             console.log(`[JEU] Bonus clôturés. Statut: IN_PROGRESS.`);
         }
     }
+    
+    // --- Route 1: DÉMARRER MATCH & ATTENDRE PARI TWITCH ---
+    app.post('/admin/start-match', 
+        bodyParser.json(), 
+        bodyParser.urlencoded({ extended: true }), 
+        async (req, res) => {
+        
+        // FIX: Renforcement de la logique de vérification de l'état
+        if (currentMatch && currentMatch.status !== 'CLOSED') {
+            return res.status(400).send({ message: "Le match actuel n'est pas terminé. Statut: " + currentMatch.status });
+        }
+        
+        // FIX: S'assurer que currentMatchId est correctement initialisé/incrémenté
+        if (currentMatchId === 0) {
+             const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
+             if (lastMatch) {
+                 currentMatchId = lastMatch.matchId;
+             }
+        }
+        currentMatchId++; 
 
-    // --- Reste des routes admin inchangé ---
-    app.post('/admin/start-match', bodyParser.json(), bodyParser.urlencoded({ extended: true }), async (req, res) => {
-        // ... (Logique inchangée)
+        try {
+            const newMatch = new Match({
+                matchId: currentMatchId, 
+                twitchPredictionId: null, 
+                status: 'AWAITING_PREDICTION', 
+                bonusResults: {
+                    botLevels: [8, 8, 8, 8],
+                    levelUpUsedForBot: [false, false, false, false],
+                    levelDownUsedForBot: [false, false, false, false],
+                    charSelectUsedForBot: [false, false, false, false],
+                    log: []
+                }
+            });
+            currentMatch = await newMatch.save(); 
+            currentPredictionId = null; 
+        } catch (error) {
+            console.error("[DB] Erreur lors de la création du Match DB:", error);
+            return res.status(500).send({ message: `Erreur DB : Échec de la création du match. Détails: ${error.message}` });
+        }
+        
+        console.log("[LOG] Match Démarré: En attente de pari Twitch. Récompenses CACHÉES.");
+        for(const key in REWARD_IDS) {
+            await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
+        }
+
+        io.emit('game-status', { status: currentMatch.status, matchId: currentMatchId });
+        res.send({ status: currentMatch.status, matchId: currentMatchId, message: `Attente du pari Twitch avec marqueur: ${GAME_PREDICTION_TITLE_MARKER}` });
     });
 
-    app.post('/admin/start-bonus', bodyParser.json(), bodyParser.urlencoded({ extended: true }), async (req, res) => {
-        // ... (Logique inchangée)
+
+    // --- Route 2: DÉMARRER PHASE BONUS (Gérée par l'admin) ---
+    app.post('/admin/start-bonus', 
+        bodyParser.json(), 
+        bodyParser.urlencoded({ extended: true }), 
+        async (req, res) => {
+        
+        const duration = parseInt(req.body.duration || 60); 
+        
+        if (!currentMatch || currentMatch.status !== 'BETTING') {
+            return res.status(400).send({ message: "La phase bonus ne peut démarrer qu'après le lancement du pari Twitch (statut BETTING)." });
+        }
+        
+        currentMatch.status = 'BONUS_ACTIVE';
+        currentMatch = await currentMatch.save();
+
+        console.log(`[LOG] Phase Bonus: Transition vers BONUS_ACTIVE. Démarrage du timer ${duration}s.`);
+        
+        // Activer les récompenses (visibles et activées)
+        for(const key in REWARD_IDS) {
+             await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
+        }
+        
+        setTimeout(async () => {
+            if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
+                console.log("[TIMER] Fin du temps de bonus écoulé. Clôture des récompenses.");
+                await closeBonusPhase();
+            }
+        }, duration * 1000);
+
+        io.emit('game-status', { status: currentMatch.status, timer: duration });
+        res.send({ status: 'BONUS_ACTIVE', timer: duration });
     });
 
+
+    // --- Route 3: ARRÊTER PHASE BONUS MANUELLEMENT ---
     app.post('/admin/stop-bonus', async (req, res) => {
-        // ... (Logique inchangée)
+        if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') {
+            return res.status(400).send({ message: "Aucune phase bonus active à arrêter." });
+        }
+        await closeBonusPhase();
+        res.send({ status: 'IN_PROGRESS', message: "Phase bonus arrêtée manuellement." });
     });
     
+    // --- Route 4: CLÔTURER MATCH DB (Final) ---
     app.post('/admin/close-match', async (req, res) => {
-        // ... (Logique inchangée)
+        if (!currentMatch || currentMatch.status === 'CLOSED') {
+            return res.status(400).send({ message: "Aucun match actif à clôturer." });
+        }
+        
+        if (currentMatch.status === 'BONUS_ACTIVE') {
+            await closeBonusPhase();
+        }
+
+        currentMatch.status = 'CLOSED';
+        currentMatch = await currentMatch.save(); 
+        currentPredictionId = null; 
+
+        io.emit('game-status', { status: 'CLOSED' });
+        res.send({ status: 'CLOSED', message: "Match DB clôturé." });
     });
 
+    // --- Route 5: API CLASSEMENT POINTS ---
     app.get('/api/classement/points', async (req, res) => {
-        // ... (Logique inchangée)
+        try {
+            const classement = await User.find({})
+                .sort({ totalPoints: -1 })
+                .limit(20)
+                .select('username totalPoints -_id');
+            res.json(classement);
+        } catch (error) {
+            res.status(500).json({ message: "Erreur lors de la récupération du classement des points.", error });
+        }
     });
 
+    // --- Route 6: API CLASSEMENT BONUS (Retourne les compteurs par type) ---
     app.get('/api/classement/bonus', async (req, res) => {
-        // ... (Logique inchangée)
+        try {
+            const classement = await User.find({})
+                .sort({ bonusUsedCount: -1 })
+                .limit(20)
+                .select('username bonusUsedCount luCount ldCount cpCount -_id'); 
+            res.json(classement);
+        } catch (error) {
+            res.status(500).json({ message: "Erreur lors de la récupération du classement des bonus.", error });
+        }
     });
     
+    // --- Route 7: API ETAT DU MATCH ACTUEL ---
     app.get('/api/current-match', async (req, res) => {
-        // ... (Logique inchangée)
+        res.json(currentMatch || { status: 'CLOSED' });
     });
 
     return { closeBonusPhase };
@@ -310,9 +422,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                         Math.max(currentMatch.bonusResults.botLevels[botIndex] - 1, 1);
                 }
             }
-            
-            // ... (Logique DB et incrémentation des compteurs inchangée)
-            
+
             // Log interne au Match
             currentMatch.bonusResults.log.push({
                 user: userDisplayName,
@@ -372,6 +482,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 console.log(`[REFUND] Rachat de ${userDisplayName} remboursé.`);
             } catch (refundError) {
                 logMessage += " => ERREUR DE REMBOURSEMENT.";
+                // On log l'erreur complète dans la console pour le debug (sera visible sur Render)
                 console.error(`[ERROR] Échec du remboursement du rachat ${event.id}:`, refundError);
             }
             
@@ -390,11 +501,34 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     // ********** ÉCOUTE DES PARIS TWITCH (Predictions) **********
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
-        // ... (Logique inchangée)
+        if (!event.title.startsWith(GAME_PREDICTION_TITLE_MARKER)) {
+            return;
+        }
+
+        console.log(`[PREDICTION TRACKED] Pari de jeu commencé: ${event.title} (ID: ${event.id})`);
+
+        if (currentMatch && currentMatch.status === 'AWAITING_PREDICTION') {
+            currentMatch.twitchPredictionId = event.id;
+            currentMatch.status = 'BETTING'; 
+            currentMatch = await currentMatch.save();
+            currentPredictionId = event.id;
+
+            io.emit('game-status', { status: currentMatch.status, matchId: currentMatch.matchId, predictionId: currentPredictionId });
+        }
     });
 
     listener.onChannelPredictionProgress(channelUserId, async (event) => {
-        // ... (Logique inchangée)
+        if (event.id === currentPredictionId) {
+             for (const outcome of event.outcomes) {
+                for (const topPredictor of outcome.topPredictors) {
+                    await User.findOneAndUpdate(
+                        { twitchId: topPredictor.userId },
+                        { $setOnInsert: { username: topPredictor.userName } }, 
+                        { upsert: true, new: true }
+                    );
+                }
+            }
+        }
     });
 
 
@@ -407,11 +541,11 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 const winningOutcomeTitle = event.winningOutcome.title;
                 const winningOutcomeId = event.winningOutcome.id;
                 
-                // ⭐️ FIX: Débogage pour vérifier si on entre dans le bloc de clôture ⭐️
+                // ⭐️ FIX: Ajout du log de débogage pour la résolution ⭐️
                 console.log(`[DEBUG] Tentative de clôture DB: Titre Gagnant reçu: "${winningOutcomeTitle}"`);
 
                 try {
-                    // 1. Obtenir les détails complets du pari (utilise jeton frais via Twurple)
+                    // 1. Obtenir les détails complets du pari (si le jeton est bon)
                     const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
                     const winningOutcome = prediction.outcomes.find(o => o.id === winningOutcomeId);
 
@@ -472,7 +606,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 async function main() {
     await connectDB();
     
-    // ... (Logique de reprise de match inchangée)
+    // Logique de reprise de match
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
     if (lastMatch) {
         currentMatchId = lastMatch.matchId;
