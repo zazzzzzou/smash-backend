@@ -2,12 +2,8 @@
 
 const mongoose = require('mongoose');
 
-// --- 1. Schéma pour les Logs de Bonus (Utilisé dans le Match Schema) ---
+// --- 1. Schéma BonusLog (Collection séparée pour l'historique détaillé) ---
 
-// Bien que les logs puissent être stockés dans le Match, les garder séparés (ou juste dans le Match) est possible.
-// Pour la simplicité et le classement, nous allons l'inclure dans le Match (comme sous-document) et créer une collection BonusLog séparée pour les logs détaillés si besoin, bien que ce soit optionnel si vous utilisez le log dans Match.
-
-// Si BonusLog est une collection indépendante (pour le classement des bonus) :
 const bonusLogSchema = new mongoose.Schema({
     matchId: { type: Number, required: true },
     userId: { type: String, required: true },
@@ -25,9 +21,14 @@ const userSchema = new mongoose.Schema({
     twitchId: { type: String, required: true, unique: true },
     username: { type: String, required: true },
     
-    // NOUVEAUX CHAMPS pour les classements
+    // CHAMPS POUR LES CLASSEMENTS
     totalPoints: { type: Number, default: 0 },
-    bonusUsedCount: { type: Number, default: 0 },
+    
+    // Champs détaillés pour le classement Bonus
+    bonusUsedCount: { type: Number, default: 0 }, // Total Global
+    luCount: { type: Number, default: 0 }, // Level Up Count
+    ldCount: { type: Number, default: 0 }, // Level Down Count
+    cpCount: { type: Number, default: 0 }, // Choix Perso Count
 
     createdAt: { type: Date, default: Date.now }
 });
@@ -53,10 +54,10 @@ const matchSchema = new mongoose.Schema({
     status: {
         type: String,
         required: true,
-        // ENUMS mis à jour pour la stratégie d'écoute passive
         enum: ['AWAITING_PREDICTION', 'BETTING', 'BONUS_ACTIVE', 'IN_PROGRESS', 'CLOSED'], 
     },
     
+    // CORRIGÉ: Stocke le numéro du bot gagnant
     winnerBot: { type: Number, default: null },
 
     bonusResults: {
@@ -84,6 +85,5 @@ const Match = mongoose.model('Match', matchSchema);
 module.exports = {
     User,
     Match,
-    // Note: BonusLog est exporté ici si vous en avez besoin, mais la logique actuelle utilise le log interne au Match.
     BonusLog 
 };
