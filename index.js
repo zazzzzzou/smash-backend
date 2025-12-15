@@ -322,7 +322,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const isUp = rewardKey === 'LEVEL_UP';
             const botIndexInput = parseInt(userInput); 
-            const botIndex = botIndexInput - 1; // 0 à 3
+            const botIndex = botIndexInput - 1; 
 
             if (isNaN(botIndexInput) || botIndexInput < 1 || botIndexInput > 4) {
                 logMessage = `Échec: Entrée invalide "${userInput}". Utilisez un chiffre entre 1 et 4.`;
@@ -411,7 +411,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
                 isSuccess: true 
             });
 
-            // ⭐️ POINT DE FIX: Force la mise à jour de l'UI Admin (Niveaux) ⭐️
+            // ⭐️ FIX: Force la mise à jour de l'UI Admin (Niveaux) ⭐️
             io.emit('game-status', { 
                 status: currentMatch.status, 
                 matchId: currentMatch.matchId,
@@ -424,12 +424,13 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
         } else {
             console.warn(`[REWARD FAILED] ${logMessage} Utilisateur: ${userDisplayName}`);
             
-            // Logique de remboursement si échec (Point 4)
+            // ⭐️ FIX: Logique de remboursement avec updateRedemptionStatus ⭐️
             try {
-                await apiClient.channelPoints.refundChannelRedemption(
+                // Rembourse l'utilisateur si la récompense ne peut pas être appliquée.
+                await apiClient.channelPoints.updateRedemptionStatus(
                     channelUserId, 
-                    rewardId, 
-                    event.id
+                    event.id, 
+                    'CANCELED' 
                 );
                 logMessage += " => REMBOURSÉ.";
                 console.log(`[REFUND] Rachat de ${userDisplayName} remboursé.`);
@@ -493,16 +494,19 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
                 const winningOutcomeTitle = event.winningOutcome.title;
                 const winningOutcomeId = event.winningOutcome.id;
                 
-                // ⭐️ AJOUT DE LOG CRITIQUE ⭐️
                 console.log(`[DEBUG] Titre du Choix Gagnant reçu: "${winningOutcomeTitle}"`);
 
-                console.log(`[PAYOUT CONFIRMATION] Gagnant: ${winningOutcomeTitle}. Calcul des points...`);
-                
-                const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
-                const winningOutcome = prediction.outcomes.find(o => o.id === winningOutcomeId);
+                try {
+                    // 1. Obtenir les détails complets du pari (pour les participants et pour tester le jeton)
+                    const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
+                    const winningOutcome = prediction.outcomes.find(o => o.id === winningOutcomeId);
 
-                // Attribution des points aux gagnants
-                if (winningOutcome) {
+                    if (!winningOutcome) {
+                        console.error("[ERROR] Échec de l'extraction de l'objet gagnant du pari. Abandon de la clôture DB.");
+                        return; 
+                    }
+
+                    // 2. Attribution des points aux gagnants
                     const winnerParticipants = winningOutcome.users || winningOutcome.topPredictors || [];
                     let usersAwarded = 0;
 
@@ -515,23 +519,29 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
                         usersAwarded++;
                     }
                     console.log(`[POINTS] ${usersAwarded} utilisateurs récompensés par 1 point.`);
-                }
-                
-                // ⭐️ POINT DE FIX: Clôture automatique et extraction du vainqueur ⭐️
-                currentMatch.status = 'CLOSED';
-                const matchResult = winningOutcomeTitle.match(/Choix (\d+)/i);
-                if (matchResult && matchResult[1]) {
-                    currentMatch.winnerBot = parseInt(matchResult[1]);
-                } else {
-                    currentMatch.winnerBot = null;
-                    console.warn(`[WARNING] Impossible d'extraire le numéro de bot gagnant du titre. Vérifiez le format "Choix X".`);
-                }
-                
-                currentMatch = await currentMatch.save(); 
-                currentPredictionId = null; 
+                    
+                    // 3. Clôture automatique et extraction du vainqueur 
+                    currentMatch.status = 'CLOSED';
+                    
+                    const matchResult = winningOutcomeTitle.match(/Choix\s*(\d+)/i); // Regex plus souple
+                    if (matchResult && matchResult[1]) {
+                        currentMatch.winnerBot = parseInt(matchResult[1]);
+                    } else {
+                        currentMatch.winnerBot = null;
+                        console.warn(`[WARNING] Échec de la regex pour trouver "Choix X". WinnerBot reste NULL.`);
+                    }
+                    
+                    currentMatch = await currentMatch.save(); 
+                    currentPredictionId = null; 
 
-                io.emit('game-status', { status: 'CLOSED', winner: currentMatch.winnerBot });
-                io.emit('prediction-status', { id: event.id, status: event.status, winner: winningOutcomeTitle });
+                    io.emit('game-status', { status: 'CLOSED', winner: currentMatch.winnerBot });
+                    io.emit('prediction-status', { id: event.id, status: event.status, winner: winningOutcomeTitle });
+
+                } catch (apiError) {
+                    console.error("[ERROR] ÉCHEC CRITIQUE lors de la récupération des détails du pari pour clôture:", apiError.message);
+                    console.error("Vérifiez la validité du jeton Twitch pour la requête `getPredictionById`.");
+                    return; 
+                }
                 
             } else {
                  io.emit('prediction-status', { id: event.id, status: event.status });
