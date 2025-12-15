@@ -99,8 +99,10 @@ async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
     }
 }
 
+// index.js (Remplacez l'ancienne fonction mapRewardNamesToIds)
+
 async function mapRewardNamesToIds(apiClient) {
-    console.log("--- Recherche et Création/Mise à jour des IDs de récompenses ---");
+    console.log("--- Recherche des IDs de récompenses existantes (Lecture Seule) ---");
     const rewardsToFind = NEW_ALL_REWARDS.filter(r => r.name);
     
     if (rewardsToFind.length === 0) {
@@ -108,52 +110,28 @@ async function mapRewardNamesToIds(apiClient) {
     }
 
     const twitchRewards = await apiClient.channelPoints.getCustomRewards(channelUserId);
+    let allFound = true;
     
     for (const reward of rewardsToFind) {
         const existingMatch = twitchRewards.find(r => r.title.toLowerCase() === reward.name.toLowerCase());
         
-        let promptText;
-        if (reward.key === 'CHOIX_PERSO') {
-             promptText = "Choix Perso: Entrez [1-4] [Nom Personnage]. Exemple: 1 Samus";
-        } else {
-             promptText = "Level: Entrez un chiffre de bot (1-4) à impacter.";
-        }
-
-        const rewardConfig = {
-            title: reward.name,
-            cost: 10, 
-            isEnabled: false, 
-            isHidden: true, 
-            prompt: promptText,
-            isUserInputRequired: true, // CLÉ : Force la saisie
-            shouldRedemptionsSkipQueue: true 
-        };
-
         if (existingMatch) {
             REWARD_IDS[reward.key] = existingMatch.id;
             console.log(`✅ ID trouvé pour "${reward.name}" : ${existingMatch.id}`);
-
-            // 1. SUPPRIMER L'ANCIENNE RÉCOMPENSE
-            try {
-                console.log(`💣 Suppression de l'ancienne récompense "${reward.name}" (${existingMatch.id})...`);
-                await apiClient.channelPoints.deleteCustomReward(channelUserId, existingMatch.id);
-                console.log(`✅ Ancienne récompense supprimée.`);
-            } catch (deleteError) {
-                console.error(`❌ Échec de la suppression de ${reward.name} (peut-être déjà supprimée).`, deleteError.message);
-            }
-        }
-        
-        // 2. CRÉER LA NOUVELLE RÉCOMPENSE
-        console.warn(`⚠️ Recréation de la récompense "${reward.name}" avec la saisie forcée...`);
-        try {
-            const newReward = await apiClient.channelPoints.createCustomReward(channelUserId, rewardConfig);
-            
-            REWARD_IDS[reward.key] = newReward.id;
-            console.log(`✨ Récompense "${reward.name}" recréée avec succès. ID: ${newReward.id}`);
-        } catch (createError) {
-            console.error(`❌ ERREUR CRITIQUE DE CRÉATION pour ${reward.name}:`, createError.message);
+            // Aucune action de création, suppression ou mise à jour.
+        } else {
+            console.error(`❌ ERREUR CRITIQUE: Récompense "${reward.name}" introuvable sur Twitch.`);
+            console.error(`Veuillez vous assurer que les récompenses "${reward.name}" (LU, LD, CP) sont créées manuellement.`);
+            allFound = false;
         }
     }
+    
+    if (!allFound) {
+         // Si toutes ne sont pas trouvées, l'application pourrait avoir un comportement instable.
+         // On retourne le nombre de récompenses trouvées pour laisser le main() décider si cela suffit.
+         console.error("ATTENTION: Toutes les récompenses nécessaires n'ont pas été trouvées. Le jeu pourrait ne pas fonctionner.");
+    }
+
     return Object.keys(REWARD_IDS).length;
 }
 
