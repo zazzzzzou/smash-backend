@@ -130,6 +130,29 @@ async function mapRewardNamesToIds(apiClient) {
     return Object.keys(REWARD_IDS).length;
 }
 
+// FIX: Nouvelle fonction utilitaire pour le remboursement (utilise callApi)
+async function refundRedemption(apiClient, rewardId, redemptionId) {
+    try {
+        await apiClient.callApi({
+            url: 'channel_points/custom_rewards/redemptions',
+            method: 'PATCH',
+            query: {
+                broadcaster_id: channelUserId,
+                reward_id: rewardId,
+                id: redemptionId,
+            },
+            jsonBody: {
+                status: 'CANCELED' // Annule et rembourse
+            }
+        });
+        return true;
+    } catch (e) {
+        // Renvoie l'erreur pour qu'elle soit loguée dans la fonction appelante
+        throw e;
+    }
+}
+
+
 // --- Routes d'Administration et API ---
 
 function setupAdminRoutes(app, apiClient, io) {
@@ -411,7 +434,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
                 isSuccess: true 
             });
 
-            // ⭐️ FIX: Force la mise à jour de l'UI Admin (Niveaux) ⭐️
+            // FIX: Force la mise à jour de l'UI Admin (Niveaux)
             io.emit('game-status', { 
                 status: currentMatch.status, 
                 matchId: currentMatch.matchId,
@@ -424,19 +447,15 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
         } else {
             console.warn(`[REWARD FAILED] ${logMessage} Utilisateur: ${userDisplayName}`);
             
-            // ⭐️ FIX: Logique de remboursement avec updateRedemptionStatus ⭐️
+            // FIX: Logique de remboursement avec la fonction utilitaire PATCH
             try {
-                // Rembourse l'utilisateur si la récompense ne peut pas être appliquée.
-                await apiClient.channelPoints.updateRedemptionStatus(
-                    channelUserId, 
-                    event.id, 
-                    'CANCELED' 
-                );
+                await refundRedemption(apiClient, rewardId, event.id); 
                 logMessage += " => REMBOURSÉ.";
                 console.log(`[REFUND] Rachat de ${userDisplayName} remboursé.`);
             } catch (refundError) {
                 logMessage += " => ERREUR DE REMBOURSEMENT.";
-                console.error(`[ERROR] Échec du remboursement du rachat ${event.id}:`, refundError.message);
+                // On log l'erreur complète dans la console pour le debug (sera visible sur Render)
+                console.error(`[ERROR] Échec du remboursement du rachat ${event.id}:`, refundError);
             }
             
             io.emit('bonus-update', { 
@@ -538,7 +557,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase) {
                     io.emit('prediction-status', { id: event.id, status: event.status, winner: winningOutcomeTitle });
 
                 } catch (apiError) {
-                    console.error("[ERROR] ÉCHEC CRITIQUE lors de la récupération des détails du pari pour clôture:", apiError.message);
+                    // C'est l'erreur que nous cherchons si le jeton est mauvais!
+                    console.error("[ERROR] ÉCHEC CRITIQUE lors de la récupération des détails du pari pour clôture (getPredictionById). L'API a retourné:", apiError);
                     console.error("Vérifiez la validité du jeton Twitch pour la requête `getPredictionById`.");
                     return; 
                 }
