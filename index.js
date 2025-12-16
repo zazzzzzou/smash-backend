@@ -116,12 +116,15 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
     app.post('/admin/start-bonus', bodyParser.json(), async (req, res) => {
-        const duration = parseInt(req.body.duration || 20); 
+        const duration = parseInt(req.body.duration) || 20; 
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Pari non lancé.");
         currentMatch.status = 'BONUS_ACTIVE';
         await currentMatch.save();
         for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
-        setTimeout(closeBonusPhase, duration * 1000);
+        
+        if (global.bonusTimeout) clearTimeout(global.bonusTimeout);
+        global.bonusTimeout = setTimeout(closeBonusPhase, duration * 1000);
+
         io.emit('game-status', { status: 'BONUS_ACTIVE', timer: duration });
         res.send({ status: 'OK' });
     });
@@ -164,6 +167,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         if (!rewardKey) return;
         const input = (event.input || '').trim();
         let success = false;
+        let logMsg = "";
 
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const idx = parseInt(input) - 1;
@@ -175,14 +179,14 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.bonusResults.botLevels[idx] += (isUp ? 1 : -1);
                     currentMatch.bonusResults.botLevels[idx] = Math.max(1, Math.min(9, currentMatch.bonusResults.botLevels[idx]));
                     success = true;
-                }
-            }
+                } else logMsg = "Déjà fait pour ce bot.";
+            } else logMsg = "Chiffre 1-4 requis.";
         } else if (rewardKey === 'CHOIX_PERSO') {
             const botIdx = parseInt(input.split(' ')[0]) - 1;
             if (botIdx >= 0 && botIdx <= 3 && !currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
                 currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
                 success = true;
-            }
+            } else logMsg = "Bot invalide ou déjà pris.";
         }
 
         if (success) {
@@ -194,7 +198,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             io.emit('game-status', { status: 'BONUS_ACTIVE', matchId: currentMatch.matchId, bonusResults: currentMatch.bonusResults });
         } else {
             await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
-            io.emit('bonus-update', { user: event.userDisplayName, isSuccess: false });
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg });
         }
         await currentMatch.save();
     });
@@ -209,7 +213,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         }
     });
 
-    // Supprime les warnings de log
     listener.onChannelPredictionProgress(channelUserId, (event) => {});
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
@@ -225,11 +228,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                         if (Array.isArray(voters)) {
                             for (const v of voters) {
                                 if (v.userId) {
-                                    await User.findOneAndUpdate(
-                                        { twitchId: v.userId }, 
-                                        { $inc: { totalPoints: 1 }, $setOnInsert: { username: v.userName } }, 
-                                        { upsert: true }
-                                    );
+                                    await User.findOneAndUpdate({ twitchId: v.userId }, { $inc: { totalPoints: 1 }, $setOnInsert: { username: v.userName } }, { upsert: true });
                                 }
                             }
                         }
