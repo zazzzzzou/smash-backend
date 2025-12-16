@@ -1,4 +1,4 @@
-// index.js (Version Restructurée et Optimisée)
+// index.js (Version Corrigée et Sécurisée)
 
 require('dotenv').config();
 const express = require('express');
@@ -38,7 +38,7 @@ const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
 
-// --- Authentification ---
+// --- Authentification (Version Corrigée) ---
 async function getAuthProvider() {
     let tokenData = null;
     try {
@@ -49,19 +49,22 @@ async function getAuthProvider() {
             tokenData = {
                 accessToken: process.env.INITIAL_ACCESS_TOKEN,
                 refreshToken: process.env.INITIAL_REFRESH_TOKEN,
-                expiresIn: 0, obtainmentTimestamp: 0,
-                scope: ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']
+                expiresIn: 0, obtainmentTimestamp: 0
             };
         }
     }
-    if (!tokenData) throw new Error("Aucun token trouvé.");
+    if (!tokenData) throw new Error("Aucun token trouvé. Vérifiez tokens.json ou les variables INITIAL_TOKEN.");
     
-    return new RefreshingAuthProvider({
+    const authProvider = new RefreshingAuthProvider({
         clientId, clientSecret,
         onRefresh: async (userId, newTokenData) => {
             await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(newTokenData, null, 4), 'utf-8');
         }
-    }, { ...tokenData, userId: channelUserId });
+    });
+
+    // Indispensable pour que Twurple lie le jeton à l'ID
+    await authProvider.addUserForToken(tokenData, ['chat']);
+    return authProvider;
 }
 
 // --- Utilitaires ---
@@ -74,12 +77,15 @@ async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
 }
 
 async function mapRewardNamesToIds(apiClient) {
-    const rewardsToFind = NEW_ALL_REWARDS.filter(r => r.name);
+    console.log("--- Recherche des IDs de récompenses ---");
     const twitchRewards = await apiClient.channelPoints.getCustomRewards(channelUserId);
-    for (const reward of rewardsToFind) {
-        const existingMatch = twitchRewards.find(r => r.title.toLowerCase() === reward.name.toLowerCase());
-        if (existingMatch) REWARD_IDS[reward.key] = existingMatch.id;
-    }
+    NEW_ALL_REWARDS.forEach(r => {
+        const found = twitchRewards.find(tr => tr.title.toLowerCase() === r.name.toLowerCase());
+        if (found) {
+            REWARD_IDS[r.key] = found.id;
+            console.log(`✅ ID trouvé pour "${r.name}" : ${found.id}`);
+        }
+    });
     return Object.keys(REWARD_IDS).length;
 }
 
@@ -121,7 +127,7 @@ function setupAdminRoutes(app, apiClient, io) {
         });
         await currentMatch.save();
         io.emit('game-status', { status: 'AWAITING_PREDICTION', matchId: currentMatchId });
-        res.send({ status: 'AWAITING_PREDICTION' });
+        res.send({ status: 'OK' });
     });
 
     app.post('/admin/start-bonus', bodyParser.json(), async (req, res) => {
@@ -132,12 +138,7 @@ function setupAdminRoutes(app, apiClient, io) {
         for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
         setTimeout(closeBonusPhase, duration * 1000);
         io.emit('game-status', { status: 'BONUS_ACTIVE', timer: duration });
-        res.send({ status: 'BONUS_ACTIVE' });
-    });
-
-    app.post('/admin/stop-bonus', async (req, res) => {
-        await closeBonusPhase();
-        res.send({ status: 'IN_PROGRESS' });
+        res.send({ status: 'OK' });
     });
 
     app.post('/admin/close-match', async (req, res) => {
@@ -146,7 +147,7 @@ function setupAdminRoutes(app, apiClient, io) {
             await currentMatch.save();
             io.emit('game-status', { status: 'CLOSED' });
         }
-        res.send({ status: 'CLOSED' });
+        res.send({ status: 'OK' });
     });
 
     app.get('/api/classement/points', async (req, res) => {
@@ -187,14 +188,14 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.bonusResults.botLevels[idx] += (isUp ? 1 : -1);
                     currentMatch.bonusResults.botLevels[idx] = Math.max(1, Math.min(9, currentMatch.bonusResults.botLevels[idx]));
                     success = true;
-                } else logMsg = "Bot déjà impacté.";
-            } else logMsg = "Saisir 1 à 4.";
+                } else logMsg = "Déjà utilisé pour ce bot.";
+            }
         } else if (rewardKey === 'CHOIX_PERSO') {
             const botIdx = parseInt(input.split(' ')[0]) - 1;
             if (botIdx >= 0 && botIdx <= 3 && !currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
                 currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
                 success = true;
-            } else logMsg = "Bot invalide ou déjà sélectionné.";
+            }
         }
 
         if (success) {
@@ -224,7 +225,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
         if (event.id === currentPredictionId && currentMatch && currentMatch.status !== 'CLOSED') {
             if (event.status.toLowerCase() === 'resolved' && event.winningOutcome) {
-                const winnerTitle = event.winningOutcome.title;
                 try {
                     const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
                     const outcome = prediction.outcomes.find(o => o.id === event.winningOutcome.id);
@@ -235,8 +235,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                         }
                     }
                     currentMatch.status = 'CLOSED';
-                    // Regex flexible : cherche Choix X, Bot X, Ordi X, ou juste le chiffre X
-                    const matchRes = winnerTitle.match(/(?:choix|bot|ordi)?\s*(\d+)/i);
+                    const matchRes = event.winningOutcome.title.match(/(?:choix|bot|ordi)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                     await currentMatch.save();
                     currentPredictionId = null;
@@ -264,10 +263,14 @@ async function main() {
     app.use(express.static('public'));
     const authProvider = await getAuthProvider();
     const apiClient = new ApiClient({ authProvider });
+    
+    // On attend que les IDs soient chargés avant de lancer le reste
     await mapRewardNamesToIds(apiClient);
+    
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
     await listener.markAsReady();
+    
     httpServer.listen(PORT, () => console.log(`🚀 Serveur sur port ${PORT}`));
 }
 main().catch(console.error);
