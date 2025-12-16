@@ -79,11 +79,12 @@ async function mapRewardNamesToIds(apiClient) {
     return Object.keys(REWARD_IDS).length;
 }
 
-// ⭐️ FONCTION DE REMBOURSEMENT BLINDÉE DE LOGS ⭐️
+// ⭐️ FONCTION DE REMBOURSEMENT CORRIGÉE ⭐️
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
     console.log(`[REFUND-LOG] Début tentative: Reward=${rewardId}, ID=${redemptionId}`);
     try {
-        const token = await authProvider.getAccessToken(channelUserId);
+        // Utilisation de l'apiClient pour récupérer le token de manière sécurisée
+        const token = await apiClient.getAccessToken();
         const accessToken = token.accessToken;
         
         const url = `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`;
@@ -146,7 +147,6 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    // ⭐️ FIX: Route Stop Bonus ⭐️
     app.post('/admin/stop-bonus', async (req, res) => {
         await closeBonusPhase();
         res.send({ status: 'IN_PROGRESS' });
@@ -215,7 +215,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
             io.emit('game-status', { status: 'BONUS_ACTIVE', matchId: currentMatch.matchId, bonusResults: currentMatch.bonusResults });
         } else {
-            // ⭐️ LOGIQUE REMBOURSEMENT AVEC INFO LOG ⭐️
+            // Remboursement
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
             const statusFinal = isRefunded ? " (Remboursé)" : " (ÉCHEC Remboursement)";
             
