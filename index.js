@@ -1,4 +1,4 @@
-// index.js (Intégral avec FIXES)
+// index.js (Version Restructurée et Optimisée)
 
 require('dotenv').config();
 const express = require('express');
@@ -11,9 +11,8 @@ const bodyParser = require('body-parser');
 const { promises: fs } = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
-const fetch = require('node-fetch'); // <== NÉCESSITE npm install node-fetch@2
+const fetch = require('node-fetch');
 
-// Imports DB et Modèles
 const connectDB = require('./db'); 
 const { User, Match, BonusLog } = require('./models');
 
@@ -21,22 +20,17 @@ const { User, Match, BonusLog } = require('./models');
 const clientId = process.env.TWITCH_CLIENT_ID;
 const clientSecret = process.env.TWITCH_CLIENT_SECRET;
 const channelUserId = process.env.CHANNEL_USER_ID; 
-const channelUsername = process.env.CHANNEL_USERNAME;
 const eventSubSecret = process.env.EVENTSUB_SECRET;
 const hostName = process.env.HOSTNAME; 
 const PORT = process.env.PORT || 3000;
-
-// Nom du fichier de tokens
 const TOKEN_FILE_PATH = path.join(__dirname, 'tokens.json');
 
-// NOUVEAUX Noms de récompenses simplifiées (définies dans .env: LU, LD, CP)
 const NEW_ALL_REWARDS = [
     { name: process.env.REWARD_NAME_LEVEL_UP, key: 'LEVEL_UP' },
     { name: process.env.REWARD_NAME_LEVEL_DOWN, key: 'LEVEL_DOWN' },
     { name: process.env.REWARD_NAME_CHOIX_PERSO, key: 'CHOIX_PERSO' }
 ];
 
-// Variables Globales de Jeu
 let currentMatchId = 0; 
 let currentMatch = null; 
 let currentPredictionId = null; 
@@ -44,625 +38,236 @@ const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
 
-
-// --- Gestion des Tokens (inchangé) ---
+// --- Authentification ---
 async function getAuthProvider() {
     let tokenData = null;
     try {
         const data = await fs.readFile(TOKEN_FILE_PATH, 'utf-8');
-        const rawData = JSON.parse(data);
-        tokenData = {
-            accessToken: rawData.accessToken || rawData.access_token,
-            refreshToken: rawData.refreshToken || rawData.refresh_token,
-            expiresIn: rawData.expiresIn || rawData.expires_in || 0,
-            obtainmentTimestamp: rawData.obtainmentTimestamp || 0,
-            scope: ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']
-        };
+        tokenData = JSON.parse(data);
     } catch (e) {
         if (process.env.INITIAL_ACCESS_TOKEN && process.env.INITIAL_REFRESH_TOKEN) {
             tokenData = {
                 accessToken: process.env.INITIAL_ACCESS_TOKEN,
                 refreshToken: process.env.INITIAL_REFRESH_TOKEN,
-                expiresIn: 0,
-                obtainmentTimestamp: 0,
+                expiresIn: 0, obtainmentTimestamp: 0,
                 scope: ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']
             };
         }
     }
-    if (!tokenData || !tokenData.accessToken) {
-        throw new Error("Aucun token valide trouvé.");
-    }
-    const authProvider = new RefreshingAuthProvider({
+    if (!tokenData) throw new Error("Aucun token trouvé.");
+    
+    return new RefreshingAuthProvider({
         clientId, clientSecret,
         onRefresh: async (userId, newTokenData) => {
-            try { 
-                await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(newTokenData, null, 4), 'utf-8'); 
-            } catch(e) { 
-                console.error("ERREUR CRITIQUE: Échec de l'écriture du nouveau token:", e.message);
-            }
+            await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(newTokenData, null, 4), 'utf-8');
         }
-    });
-    if (!channelUserId) throw new Error("CHANNEL_USER_ID manquant.");
-    authProvider.addUser(channelUserId, tokenData);
-    authProvider.addIntentsToUser(channelUserId, ['channel:read:redemptions', 'channel:manage:redemptions', 'channel:read:predictions', 'channel:manage:predictions']);
-    return authProvider;
+    }, { ...tokenData, userId: channelUserId });
 }
 
-// --- Fonctions Utilitaires de Jeu ---
+// --- Utilitaires ---
 
 async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
     if (!rewardId) return;
     try {
-        await apiClient.channelPoints.updateCustomReward(channelUserId, rewardId, {
-            isEnabled: isEnabled,
-            isHidden: isHidden
-        });
-    } catch (e) {
-        console.error(`[Twitch API] Erreur statut récompense ${rewardId}:`, e.message);
-    }
+        await apiClient.channelPoints.updateCustomReward(channelUserId, rewardId, { isEnabled, isHidden });
+    } catch (e) { console.error(`[Twitch API] Erreur reward ${rewardId}:`, e.message); }
 }
 
-// Fonction de lecture seule des IDs
 async function mapRewardNamesToIds(apiClient) {
-    console.log("--- Recherche des IDs de récompenses existantes (Lecture Seule) ---");
     const rewardsToFind = NEW_ALL_REWARDS.filter(r => r.name);
-    
-    if (rewardsToFind.length === 0) {
-        console.warn("Aucune récompense n'est définie dans les variables d'environnement.");
-    }
-
     const twitchRewards = await apiClient.channelPoints.getCustomRewards(channelUserId);
-    let allFound = true;
-    
     for (const reward of rewardsToFind) {
         const existingMatch = twitchRewards.find(r => r.title.toLowerCase() === reward.name.toLowerCase());
-        
-        if (existingMatch) {
-            REWARD_IDS[reward.key] = existingMatch.id;
-            console.log(`✅ ID trouvé pour "${reward.name}" : ${existingMatch.id}`);
-        } else {
-            console.error(`❌ ERREUR CRITIQUE: Récompense "${reward.name}" introuvable sur Twitch.`);
-            allFound = false;
-        }
+        if (existingMatch) REWARD_IDS[reward.key] = existingMatch.id;
     }
-    
-    if (!allFound) {
-         console.error("ATTENTION: Toutes les récompenses nécessaires n'ont pas été trouvées. Le jeu pourrait ne pas fonctionner.");
-    }
-
     return Object.keys(REWARD_IDS).length;
 }
 
-// FIX: Nouvelle fonction utilitaire pour le remboursement (utilise FETCH avec jeton frais)
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
-    
-    // Obtenir le jeton d'accès le plus frais (étape critique)
     const { accessToken } = await authProvider.getAccessToken(channelUserId); 
-
     try {
-        const twitchUrl = `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions`;
-        
-        const response = await fetch(twitchUrl, {
+        const response = await fetch(`https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`, {
             method: 'PATCH',
             headers: {
-                'Client-ID': apiClient.options.clientId,
-                'Authorization': `Bearer ${accessToken}`, // Utilisation du jeton le plus frais
+                'Client-ID': clientId,
+                'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                broadcaster_id: channelUserId,
-                reward_id: rewardId,
-                id: redemptionId,
-                status: 'CANCELED' 
-            }),
+            body: JSON.stringify({ status: 'CANCELED' }),
         });
-        
-        const responseText = await response.text();
-
-        if (response.status !== 200) {
-            console.error(`[TWITCH API REFUND FORCE] ÉCHEC HTTP ${response.status}:`, responseText);
-            // Si le jeton est mauvais, cette erreur sera lancée
-            throw new Error(`Échec du remboursement: ${response.status} - ${JSON.parse(responseText).message || responseText}`);
-        }
-        return true;
-    } catch (e) {
-        throw e;
-    }
+        return response.status === 200;
+    } catch (e) { return false; }
 }
 
-
-// --- Routes d'Administration et API ---
+// --- Routes Admin ---
 
 function setupAdminRoutes(app, apiClient, io) {
-    
-    async function closeBonusPhase() {
+    const closeBonusPhase = async () => {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
             currentMatch = await currentMatch.save(); 
-
-            // Masquer et désactiver toutes les récompenses
-            for(const key in REWARD_IDS) {
-                await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
-            }
-            
+            for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
             io.emit('game-status', { status: 'IN_PROGRESS', bonusResults: currentMatch.bonusResults });
-            console.log(`[JEU] Bonus clôturés. Statut: IN_PROGRESS.`);
         }
-    }
-    
-    // --- Route 1: DÉMARRER MATCH & ATTENDRE PARI TWITCH ---
-    app.post('/admin/start-match', 
-        bodyParser.json(), 
-        bodyParser.urlencoded({ extended: true }), 
-        async (req, res) => {
-        
-        // FIX: Renforcement de la logique de vérification de l'état
-        if (currentMatch && currentMatch.status !== 'CLOSED') {
-            return res.status(400).send({ message: "Le match actuel n'est pas terminé. Statut: " + currentMatch.status });
-        }
-        
-        // FIX: S'assurer que currentMatchId est correctement initialisé/incrémenté
-        if (currentMatchId === 0) {
-             const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
-             if (lastMatch) {
-                 currentMatchId = lastMatch.matchId;
-             }
-        }
-        currentMatchId++; 
+    };
 
-        try {
-            const newMatch = new Match({
-                matchId: currentMatchId, 
-                twitchPredictionId: null, 
-                status: 'AWAITING_PREDICTION', 
-                bonusResults: {
-                    botLevels: [8, 8, 8, 8],
-                    levelUpUsedForBot: [false, false, false, false],
-                    levelDownUsedForBot: [false, false, false, false],
-                    charSelectUsedForBot: [false, false, false, false],
-                    log: []
-                }
-            });
-            currentMatch = await newMatch.save(); 
-            currentPredictionId = null; 
-        } catch (error) {
-            console.error("[DB] Erreur lors de la création du Match DB:", error);
-            return res.status(500).send({ message: `Erreur DB : Échec de la création du match. Détails: ${error.message}` });
-        }
-        
-        console.log("[LOG] Match Démarré: En attente de pari Twitch. Récompenses CACHÉES.");
-        for(const key in REWARD_IDS) {
-            await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
-        }
-
-        io.emit('game-status', { status: currentMatch.status, matchId: currentMatchId });
-        res.send({ status: currentMatch.status, matchId: currentMatchId, message: `Attente du pari Twitch avec marqueur: ${GAME_PREDICTION_TITLE_MARKER}` });
+    app.post('/admin/start-match', bodyParser.json(), async (req, res) => {
+        if (currentMatch && currentMatch.status !== 'CLOSED') return res.status(400).send("Match en cours.");
+        const last = await Match.findOne({}).sort({ matchId: -1 });
+        currentMatchId = last ? last.matchId + 1 : 1;
+        currentMatch = new Match({
+            matchId: currentMatchId, status: 'AWAITING_PREDICTION',
+            bonusResults: { botLevels: [8,8,8,8], levelUpUsedForBot: [false,false,false,false], levelDownUsedForBot: [false,false,false,false], charSelectUsedForBot: [false,false,false,false], log: [] }
+        });
+        await currentMatch.save();
+        io.emit('game-status', { status: 'AWAITING_PREDICTION', matchId: currentMatchId });
+        res.send({ status: 'AWAITING_PREDICTION' });
     });
 
-
-    // --- Route 2: DÉMARRER PHASE BONUS (Gérée par l'admin) ---
-    app.post('/admin/start-bonus', 
-        bodyParser.json(), 
-        bodyParser.urlencoded({ extended: true }), 
-        async (req, res) => {
-        
+    app.post('/admin/start-bonus', bodyParser.json(), async (req, res) => {
         const duration = parseInt(req.body.duration || 60); 
-        
-        if (!currentMatch || currentMatch.status !== 'BETTING') {
-            return res.status(400).send({ message: "La phase bonus ne peut démarrer qu'après le lancement du pari Twitch (statut BETTING)." });
-        }
-        
+        if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Status invalide.");
         currentMatch.status = 'BONUS_ACTIVE';
-        currentMatch = await currentMatch.save();
-
-        console.log(`[LOG] Phase Bonus: Transition vers BONUS_ACTIVE. Démarrage du timer ${duration}s.`);
-        
-        // Activer les récompenses (visibles et activées)
-        for(const key in REWARD_IDS) {
-             await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
-        }
-        
-        setTimeout(async () => {
-            if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
-                console.log("[TIMER] Fin du temps de bonus écoulé. Clôture des récompenses.");
-                await closeBonusPhase();
-            }
-        }, duration * 1000);
-
-        io.emit('game-status', { status: currentMatch.status, timer: duration });
-        res.send({ status: 'BONUS_ACTIVE', timer: duration });
+        await currentMatch.save();
+        for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
+        setTimeout(closeBonusPhase, duration * 1000);
+        io.emit('game-status', { status: 'BONUS_ACTIVE', timer: duration });
+        res.send({ status: 'BONUS_ACTIVE' });
     });
 
-
-    // --- Route 3: ARRÊTER PHASE BONUS MANUELLEMENT ---
     app.post('/admin/stop-bonus', async (req, res) => {
-        if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') {
-            return res.status(400).send({ message: "Aucune phase bonus active à arrêter." });
-        }
         await closeBonusPhase();
-        res.send({ status: 'IN_PROGRESS', message: "Phase bonus arrêtée manuellement." });
+        res.send({ status: 'IN_PROGRESS' });
     });
-    
-    // --- Route 4: CLÔTURER MATCH DB (Final) ---
+
     app.post('/admin/close-match', async (req, res) => {
-        if (!currentMatch || currentMatch.status === 'CLOSED') {
-            return res.status(400).send({ message: "Aucun match actif à clôturer." });
+        if (currentMatch) {
+            currentMatch.status = 'CLOSED';
+            await currentMatch.save();
+            io.emit('game-status', { status: 'CLOSED' });
         }
-        
-        if (currentMatch.status === 'BONUS_ACTIVE') {
-            await closeBonusPhase();
-        }
-
-        currentMatch.status = 'CLOSED';
-        currentMatch = await currentMatch.save(); 
-        currentPredictionId = null; 
-
-        io.emit('game-status', { status: 'CLOSED' });
-        res.send({ status: 'CLOSED', message: "Match DB clôturé." });
+        res.send({ status: 'CLOSED' });
     });
 
-    // --- Route 5: API CLASSEMENT POINTS ---
     app.get('/api/classement/points', async (req, res) => {
-        try {
-            const classement = await User.find({})
-                .sort({ totalPoints: -1 })
-                .limit(20)
-                .select('username totalPoints -_id');
-            res.json(classement);
-        } catch (error) {
-            res.status(500).json({ message: "Erreur lors de la récupération du classement des points.", error });
-        }
+        res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id'));
     });
 
-    // --- Route 6: API CLASSEMENT BONUS (Retourne les compteurs par type) ---
     app.get('/api/classement/bonus', async (req, res) => {
-        try {
-            const classement = await User.find({})
-                .sort({ bonusUsedCount: -1 })
-                .limit(20)
-                .select('username bonusUsedCount luCount ldCount cpCount -_id'); 
-            res.json(classement);
-        } catch (error) {
-            res.status(500).json({ message: "Erreur lors de la récupération du classement des bonus.", error });
-        }
+        res.json(await User.find({}).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount -_id'));
     });
-    
-    // --- Route 7: API ETAT DU MATCH ACTUEL ---
-    app.get('/api/current-match', async (req, res) => {
-        res.json(currentMatch || { status: 'CLOSED' });
-    });
+
+    app.get('/api/current-match', async (req, res) => res.json(currentMatch || { status: 'CLOSED' }));
 
     return { closeBonusPhase };
 }
 
+// --- EventSub ---
 
-// --- Logique EventSub ---
-
-// FIX: setupEventSub doit maintenant accepter authProvider
 function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) { 
-    const listener = new EventSubMiddleware({
-        apiClient,
-        hostName: hostName || 'localhost', 
-        pathPrefix: '/twitch-events',
-        secret: eventSubSecret || 'secret'
-    });
-    
+    const listener = new EventSubMiddleware({ apiClient, hostName, pathPrefix: '/twitch-events', secret: eventSubSecret });
     listener.apply(app);
 
-    // ********** ÉCOUTE DES BONUS DE POINTS DE CHAÎNE (Reward) **********
     listener.onChannelRedemptionAdd(channelUserId, async (event) => {
-        if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') { 
-            return; 
-        }
-        
-        const rewardId = event.rewardId;
-        const userId = event.userId;
-        const userDisplayName = event.userDisplayName;
-        const userInput = (event.input || '').trim();
-        
-        const usedReward = NEW_ALL_REWARDS.find(r => REWARD_IDS[r.key] === rewardId);
-        if (!usedReward) return;
-        
-        const rewardKey = usedReward.key;
-        let isSuccess = false;
-        let logMessage = '';
+        if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') return;
+        const rewardKey = Object.keys(REWARD_IDS).find(k => REWARD_IDS[k] === event.rewardId);
+        if (!rewardKey) return;
 
-        
-        // --- Logique Level Up / Level Down / Choix Perso (Inchangé) ---
+        const input = (event.input || '').trim();
+        let success = false;
+        let logMsg = "";
+
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
+            const idx = parseInt(input) - 1;
             const isUp = rewardKey === 'LEVEL_UP';
-            const botIndexInput = parseInt(userInput); 
-            const botIndex = botIndexInput - 1; 
-
-            if (isNaN(botIndexInput) || botIndexInput < 1 || botIndexInput > 4) {
-                logMessage = `Échec: Entrée invalide "${userInput}". Utilisez un chiffre entre 1 et 4.`;
-            } else {
-                const usedArray = isUp ? currentMatch.bonusResults.levelUpUsedForBot : currentMatch.bonusResults.levelDownUsedForBot;
-                
-                if (usedArray[botIndex] === true) {
-                    logMessage = `Échec: Bot ${botIndexInput} déjà Level ${isUp ? 'UP' : 'DOWN'} ce match.`;
-                } else {
-                    usedArray[botIndex] = true;
-                    logMessage = `Succès: Bot ${botIndexInput} Level ${isUp ? 'UP' : 'DOWN'}.`;
-                    isSuccess = true;
-                }
-            }
-
+            if (idx >= 0 && idx <= 3) {
+                const arr = isUp ? currentMatch.bonusResults.levelUpUsedForBot : currentMatch.bonusResults.levelDownUsedForBot;
+                if (!arr[idx]) {
+                    arr[idx] = true;
+                    currentMatch.bonusResults.botLevels[idx] += (isUp ? 1 : -1);
+                    currentMatch.bonusResults.botLevels[idx] = Math.max(1, Math.min(9, currentMatch.bonusResults.botLevels[idx]));
+                    success = true;
+                } else logMsg = "Bot déjà impacté.";
+            } else logMsg = "Saisir 1 à 4.";
         } else if (rewardKey === 'CHOIX_PERSO') {
-            const parts = userInput.split(' ');
-            const botIndexInput = parseInt(parts[0]);
-            const characterName = parts.slice(1).join(' ').trim();
-            const botIndex = botIndexInput - 1;
-
-            if (isNaN(botIndexInput) || botIndexInput < 1 || botIndexInput > 4 || !characterName) {
-                 logMessage = `Échec: Format invalide "${userInput}". Utilisez: [1-4] [Nom Personnage].`;
-            } else if (currentMatch.bonusResults.charSelectUsedForBot[botIndex] === true) {
-                 logMessage = `Échec: Personnage pour Bot ${botIndexInput} déjà sélectionné.`;
-            } else {
-                 currentMatch.bonusResults.charSelectUsedForBot[botIndex] = true;
-                 logMessage = `Succès: Bot ${botIndexInput} assigné à ${characterName}.`;
-                 isSuccess = true;
-            }
+            const botIdx = parseInt(input.split(' ')[0]) - 1;
+            if (botIdx >= 0 && botIdx <= 3 && !currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
+                currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
+                success = true;
+            } else logMsg = "Bot invalide ou déjà sélectionné.";
         }
 
-        
-        // Finalisation
-        if (isSuccess) {
-            
-            // Logique des niveaux (Point 5 - Inchangé)
-            if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
-                const isUp = rewardKey === 'LEVEL_UP';
-                const botIndex = parseInt(userInput) - 1; 
-                
-                if (isUp) {
-                    currentMatch.bonusResults.botLevels[botIndex] = 
-                        Math.min(currentMatch.bonusResults.botLevels[botIndex] + 1, BOT_LEVEL_MAX);
-                } else {
-                    currentMatch.bonusResults.botLevels[botIndex] = 
-                        Math.max(currentMatch.bonusResults.botLevels[botIndex] - 1, 1);
-                }
-            }
-
-            // Log interne au Match
-            currentMatch.bonusResults.log.push({
-                user: userDisplayName,
-                userId: userId,
-                reward: rewardKey,
-                input: userInput,
-                timestamp: new Date()
-            });
-
-            // Logique d'incrémentation des bonus par type
-            let updateQuery = { $inc: { bonusUsedCount: 1 }, $setOnInsert: { username: userDisplayName } };
-            const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : 
-                             (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
-            updateQuery.$inc[countKey] = 1;
-            
-            await User.findOneAndUpdate(
-                 { twitchId: userId },
-                 updateQuery,
-                 { upsert: true }
-            );
-
-            // Logique d'écriture du log historique 
-            const logEntry = new BonusLog({
-                matchId: currentMatch.matchId,
-                userId: userId,
-                bonusType: rewardKey,
-                targetBot: (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') ? parseInt(userInput) : null,
-                input: userInput
-            });
-            await logEntry.save();
-            
-            io.emit('bonus-update', { 
-                type: rewardKey, 
-                user: userDisplayName, 
-                input: userInput, 
-                isSuccess: true 
-            });
-
-            // FIX: Force la mise à jour de l'UI Admin (Niveaux)
-            io.emit('game-status', { 
-                status: currentMatch.status, 
-                matchId: currentMatch.matchId,
-                twitchPredictionId: currentMatch.twitchPredictionId,
-                bonusResults: currentMatch.bonusResults
-            });
-
-            console.log(`[REWARD SUCCESS] ${logMessage} Utilisateur: ${userDisplayName}`);
-
+        if (success) {
+            currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
+            const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
+            await User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true });
+            await (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
+            io.emit('game-status', { status: 'BONUS_ACTIVE', matchId: currentMatch.matchId, bonusResults: currentMatch.bonusResults });
         } else {
-            console.warn(`[REWARD FAILED] ${logMessage} Utilisateur: ${userDisplayName}`);
-            
-            // ⭐️ FIX: Logique de remboursement avec la fonction utilitaire PATCH ⭐️
-            try {
-                // Utilise la fonction avec l'authProvider
-                await refundRedemption(apiClient, authProvider, rewardId, event.id); 
-                logMessage += " => REMBOURSÉ.";
-                console.log(`[REFUND] Rachat de ${userDisplayName} remboursé.`);
-            } catch (refundError) {
-                logMessage += " => ERREUR DE REMBOURSEMENT.";
-                // On log l'erreur complète dans la console pour le debug (sera visible sur Render)
-                console.error(`[ERROR] Échec du remboursement du rachat ${event.id}:`, refundError);
-            }
-            
-            io.emit('bonus-update', { 
-                type: rewardKey, 
-                user: userDisplayName, 
-                input: userInput, 
-                isSuccess: false,
-                message: logMessage
-            });
+            await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
+            io.emit('bonus-update', { user: event.userDisplayName, isSuccess: false, message: logMsg });
         }
-        currentMatch = await currentMatch.save();
+        await currentMatch.save();
     });
-
-
-    // ********** ÉCOUTE DES PARIS TWITCH (Predictions) **********
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
-        if (!event.title.startsWith(GAME_PREDICTION_TITLE_MARKER)) {
-            return;
-        }
-
-        console.log(`[PREDICTION TRACKED] Pari de jeu commencé: ${event.title} (ID: ${event.id})`);
-
-        if (currentMatch && currentMatch.status === 'AWAITING_PREDICTION') {
+        if (event.title.startsWith(GAME_PREDICTION_TITLE_MARKER) && currentMatch?.status === 'AWAITING_PREDICTION') {
             currentMatch.twitchPredictionId = event.id;
-            currentMatch.status = 'BETTING'; 
-            currentMatch = await currentMatch.save();
+            currentMatch.status = 'BETTING';
+            await currentMatch.save();
             currentPredictionId = event.id;
-
-            io.emit('game-status', { status: currentMatch.status, matchId: currentMatch.matchId, predictionId: currentPredictionId });
+            io.emit('game-status', { status: 'BETTING', matchId: currentMatch.matchId, predictionId: event.id });
         }
     });
-
-    listener.onChannelPredictionProgress(channelUserId, async (event) => {
-        if (event.id === currentPredictionId) {
-             for (const outcome of event.outcomes) {
-                for (const topPredictor of outcome.topPredictors) {
-                    await User.findOneAndUpdate(
-                        { twitchId: topPredictor.userId },
-                        { $setOnInsert: { username: topPredictor.userName } }, 
-                        { upsert: true, new: true }
-                    );
-                }
-            }
-        }
-    });
-
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
         if (event.id === currentPredictionId && currentMatch && currentMatch.status !== 'CLOSED') {
-            
-            console.log(`[PREDICTION] Pari terminé (ID: ${event.id}). Statut final: ${event.status}.`);
-
-            if (event.status === 'resolved' && event.winningOutcome) {
-                const winningOutcomeTitle = event.winningOutcome.title;
-                const winningOutcomeId = event.winningOutcome.id;
-                
-                // ⭐️ FIX: Ajout du log de débogage pour la résolution ⭐️
-                console.log(`[DEBUG] Tentative de clôture DB: Titre Gagnant reçu: "${winningOutcomeTitle}"`);
-
+            if (event.status.toLowerCase() === 'resolved' && event.winningOutcome) {
+                const winnerTitle = event.winningOutcome.title;
                 try {
-                    // 1. Obtenir les détails complets du pari (si le jeton est bon)
                     const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
-                    const winningOutcome = prediction.outcomes.find(o => o.id === winningOutcomeId);
-
-                    if (!winningOutcome) {
-                        console.error("[ERROR] Échec de l'extraction de l'objet gagnant du pari. Abandon de la clôture DB.");
-                        return; 
+                    const outcome = prediction.outcomes.find(o => o.id === event.winningOutcome.id);
+                    if (outcome) {
+                        const voters = outcome.users || outcome.topPredictors || [];
+                        for (const v of voters) {
+                            await User.findOneAndUpdate({ twitchId: v.userId }, { $inc: { totalPoints: 1 }, $setOnInsert: { username: v.userName } }, { upsert: true });
+                        }
                     }
-
-                    // 2. Attribution des points aux gagnants (Inchagé)
-                    const winnerParticipants = winningOutcome.users || winningOutcome.topPredictors || [];
-                    let usersAwarded = 0;
-
-                    for (const participant of winnerParticipants) { 
-                        await User.findOneAndUpdate(
-                            { twitchId: participant.userId },
-                            { $inc: { totalPoints: 1 }, $setOnInsert: { username: participant.userName } }, 
-                            { upsert: true }
-                        );
-                        usersAwarded++;
-                    }
-                    console.log(`[POINTS] ${usersAwarded} utilisateurs récompensés par 1 point.`);
-                    
-                    // 3. Clôture automatique et extraction du vainqueur 
                     currentMatch.status = 'CLOSED';
-                    
-                    const matchResult = winningOutcomeTitle.match(/Choix\s*(\d+)/i);
-                    if (matchResult && matchResult[1]) {
-                        currentMatch.winnerBot = parseInt(matchResult[1]);
-                    } else {
-                        currentMatch.winnerBot = null;
-                        console.warn(`[WARNING] Échec de la regex pour trouver "Choix X". WinnerBot reste NULL.`);
-                    }
-                    
-                    currentMatch = await currentMatch.save(); 
-                    currentPredictionId = null; 
-
+                    // Regex flexible : cherche Choix X, Bot X, Ordi X, ou juste le chiffre X
+                    const matchRes = winnerTitle.match(/(?:choix|bot|ordi)?\s*(\d+)/i);
+                    currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
+                    await currentMatch.save();
+                    currentPredictionId = null;
                     io.emit('game-status', { status: 'CLOSED', winner: currentMatch.winnerBot });
-                    io.emit('prediction-status', { id: event.id, status: event.status, winner: winningOutcomeTitle });
-
-                } catch (apiError) {
-                    console.error("[ERROR] ÉCHEC CRITIQUE lors de la récupération des détails du pari pour clôture (getPredictionById). L'API a retourné:", apiError);
-                    console.error("Le jeton d'utilisateur a probablement expiré. Le match DB DOIT être clôturé manuellement.");
-                    return; 
-                }
-                
-            } else {
-                 io.emit('prediction-status', { id: event.id, status: event.status });
+                } catch (e) { console.error("Erreur clôture match:", e.message); }
             }
         }
     });
-
     return listener;
 }
 
-
-// --- Fonction Principale (Main) ---
+// --- Main ---
 
 async function main() {
     await connectDB();
-    
-    // Logique de reprise de match
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
     if (lastMatch) {
-        currentMatchId = lastMatch.matchId;
         currentMatch = lastMatch; 
-        currentPredictionId = lastMatch.twitchPredictionId || null; 
-        console.log(`[DB] Reprise du Match ID : ${currentMatchId}. Statut : ${currentMatch.status}. Prediction ID: ${currentPredictionId}`);
-    } else {
-        currentMatchId = 0;
-        console.log(`[DB] Démarrage du Match ID à 0.`);
+        currentMatchId = lastMatch.matchId;
+        currentPredictionId = lastMatch.twitchPredictionId;
     }
-
     const app = express();
     const httpServer = createServer(app);
     const io = new Server(httpServer);
-    
     app.use(express.static('public'));
-
-    app.get('/', (req, res) => {
-        res.redirect('/admin.html');
-    });
-
-    console.log("Authentification...");
     const authProvider = await getAuthProvider();
     const apiClient = new ApiClient({ authProvider });
-
-    const totalRewardsFound = await mapRewardNamesToIds(apiClient);
-    if (totalRewardsFound === 0) {
-        console.error("ERREUR CRITIQUE: Aucune des récompenses nécessaires n'a été trouvée/créée. Le jeu ne peut pas démarrer.");
-        process.exit(1);
-    }
-    
+    await mapRewardNamesToIds(apiClient);
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
-    
-    // FIX: Passer authProvider à setupEventSub
-    const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider); 
-    
-    try {
-        await listener.markAsReady();
-    } catch (e) {
-        console.warn(`[EVENT SUB] Erreur au démarrage du listener: ${e.message}`);
-    }
-
-    httpServer.listen(PORT, () => {
-        console.log(`\n🚀 Serveur lancé sur http://localhost:${PORT}`);
-    });
-
-    io.on('connection', (socket) => {
-        if (currentMatch) {
-            socket.emit('game-status', { 
-                status: currentMatch.status, 
-                matchId: currentMatch.matchId 
-            });
-        } else {
-             socket.emit('game-status', { status: 'CLOSED', matchId: 0 });
-        }
-    });
+    const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
+    await listener.markAsReady();
+    httpServer.listen(PORT, () => console.log(`🚀 Serveur sur port ${PORT}`));
 }
-
 main().catch(console.error);
