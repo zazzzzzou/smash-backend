@@ -537,7 +537,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             
             console.log(`[PREDICTION] Pari terminé (ID: ${event.id}). Statut final: ${event.status}.`);
 
-            if (event.status === 'RESOLVED' && event.winningOutcome) {
+            if (event.status === 'resolved' && event.winningOutcome) {
                 const winningOutcomeTitle = event.winningOutcome.title;
                 const winningOutcomeId = event.winningOutcome.id;
                 
