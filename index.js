@@ -79,14 +79,19 @@ async function mapRewardNamesToIds(apiClient) {
     return Object.keys(REWARD_IDS).length;
 }
 
-// ⭐️ FONCTION DE REMBOURSEMENT CORRIGÉE ⭐️
+// ⭐️ FONCTION DE REMBOURSEMENT UNIVERSELLE ⭐️
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
     console.log(`[REFUND-LOG] Début tentative: Reward=${rewardId}, ID=${redemptionId}`);
     try {
-        // Utilisation de l'apiClient pour récupérer le token de manière sécurisée
-        const token = await apiClient.getAccessToken();
-        const accessToken = token.accessToken;
+        // Méthode universelle pour récupérer le jeton d'un utilisateur spécifique
+        const token = await authProvider.getAccessTokenForUser(channelUserId);
         
+        if (!token || !token.accessToken) {
+            console.error(`[REFUND-LOG] Erreur: Jeton d'accès introuvable.`);
+            return false;
+        }
+        
+        const accessToken = token.accessToken;
         const url = `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`;
         
         const response = await fetch(url, {
