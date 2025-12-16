@@ -15,56 +15,44 @@
         .CLOSED { background: #f8d7da; color: #721c24; }
         button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 4px; background: #007bff; color: white; margin-right: 10px; }
         button:disabled { background: #ccc; cursor: not-allowed; }
-        button.stop { background: #dc3545; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        #log-container { height: 200px; overflow-y: auto; background: #333; color: #eee; padding: 10px; font-family: monospace; }
-        .log-success { color: #28a745; }
-        .log-fail { color: #dc3545; }
+        #log-container { height: 250px; overflow-y: auto; background: #222; color: #eee; padding: 10px; font-family: monospace; border-radius: 4px; }
+        .log-success { color: #51cf66; }
+        .log-fail { color: #ff6b6b; border-left: 3px solid #ff6b6b; padding-left: 5px; }
     </style>
 </head>
 <body>
-    <h1>Panneau d'Administration Smash Betting</h1>
+    <h1>Panneau Admin - Smash Betting</h1>
 
     <div class="card">
         <h2>Contrôle du Match</h2>
-        <p>Statut Actuel : <span id="match-status" class="status-badge CLOSED">CLOSED</span></p>
-        <p>Match ID : <span id="match-id-display">0</span></p>
+        <p>Statut : <span id="match-status" class="status-badge CLOSED">CLOSED</span> | ID : <span id="match-id-display">-</span></p>
         
-        <button id="btn-start-match" onclick="startNewMatch()">Démarrer Nouveau Match</button>
+        <button id="btn-start-match" onclick="startNewMatch()">1. Démarrer Nouveau Match</button>
         
         <div style="margin-top: 20px;">
-            <label>Durée Bonus (sec) : </label>
-            <input type="number" id="bonus-duration" value="20" min="5" style="width: 60px;">
-            <button id="btn-start-bonus" onclick="startBonusPhase()" disabled>Lancer Phase Bonus</button>
-            <button id="btn-stop-bonus" class="stop" onclick="stopBonusPhase()" disabled>Arrêter Bonus Manuellement</button>
+            <label>Timer Bonus : </label>
+            <input type="number" id="bonus-duration" value="20" style="width: 50px;">
+            <button id="btn-start-bonus" onclick="startBonusPhase()" disabled>2. Lancer Phase Bonus</button>
+            <button id="btn-stop-bonus" onclick="stopBonusPhase()" style="background:#e67e22" disabled>Arrêter Bonus</button>
         </div>
 
         <div style="margin-top: 20px;">
-            <button id="btn-close-match" class="stop" onclick="closeMatch()" disabled>Clôturer Match Manuellement</button>
+            <button id="btn-close-match" onclick="closeMatch()" style="background:#c0392b" disabled>Clôturer Match</button>
         </div>
     </div>
 
     <div class="card">
-        <h2>État des Bots</h2>
-        <table id="bot-table">
-            <thead>
-                <tr>
-                    <th>Bot</th>
-                    <th>Niveau Actuel</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr><td>1</td><td id="lvl-0">8</td></tr>
-                <tr><td>2</td><td id="lvl-1">8</td></tr>
-                <tr><td>3</td><td id="lvl-2">8</td></tr>
-                <tr><td>4</td><td id="lvl-3">8</td></tr>
-            </tbody>
+        <h2>Niveaux des Bots</h2>
+        <table>
+            <tr><th>Bot 1</th><th>Bot 2</th><th>Bot 3</th><th>Bot 4</th></tr>
+            <tr><td id="lvl-0">8</td><td id="lvl-1">8</td><td id="lvl-2">8</td><td id="lvl-3">8</td></tr>
         </table>
     </div>
 
     <div class="card">
-        <h2>Log des Bonus</h2>
+        <h2>Log d'activité (Temps réel)</h2>
         <div id="log-container"></div>
     </div>
 
@@ -72,22 +60,18 @@
         const socket = io();
         const apiBaseUrl = window.location.origin;
 
-        // --- UI Updates ---
         function updateUI(data) {
             const status = data.status || 'CLOSED';
             const badge = document.getElementById('match-status');
             badge.textContent = status;
             badge.className = 'status-badge ' + status;
-
             document.getElementById('match-id-display').textContent = data.matchId || '-';
 
-            // Boutons
             document.getElementById('btn-start-match').disabled = (status !== 'CLOSED');
             document.getElementById('btn-start-bonus').disabled = (status !== 'BETTING');
             document.getElementById('btn-stop-bonus').disabled = (status !== 'BONUS_ACTIVE');
             document.getElementById('btn-close-match').disabled = (status === 'CLOSED');
 
-            // Niveaux
             if (data.bonusResults && data.bonusResults.botLevels) {
                 data.bonusResults.botLevels.forEach((lvl, i) => {
                     document.getElementById(`lvl-${i}`).textContent = lvl;
@@ -103,53 +87,30 @@
             container.prepend(div);
         }
 
-        // --- API Calls ---
-        async function startNewMatch() {
-            const res = await fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' });
-            if (!res.ok) alert(await res.text());
-        }
-
+        async function startNewMatch() { fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' }); }
         async function startBonusPhase() {
-            const duration = document.getElementById('bonus-duration').value;
-            const res = await fetch(`${apiBaseUrl}/admin/start-bonus`, {
+            const d = document.getElementById('bonus-duration').value;
+            fetch(`${apiBaseUrl}/admin/start-bonus`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ duration: parseInt(duration) })
+                body: JSON.stringify({ duration: parseInt(d) })
             });
         }
+        async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
+        async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
 
-        async function stopBonusPhase() {
-            await fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' });
-        }
-
-        async function closeMatch() {
-            if(confirm("Voulez-vous vraiment clôturer le match ?")) {
-                await fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' });
-            }
-        }
-
-        // --- Sockets ---
-        socket.on('game-status', (data) => {
-            updateUI(data);
-            if (data.status === 'CLOSED' && data.winner) {
-                addLog(`MATCH TERMINÉ - Vainqueur Bot ${data.winner}`);
-            }
-        });
-
+        socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {
             const type = data.type || "Bonus";
-            const input = data.input || "?";
+            const input = data.input || "N/A";
             if (data.isSuccess) {
-                addLog(`SUCCÈS: ${data.user} a activé ${type} (${input})`);
+                addLog(`✨ SUCCÈS: ${data.user} -> ${type} (Bot ${input})`);
             } else {
-                addLog(`ÉCHEC: ${data.user} - ${type} (${input}) - ${data.message || 'Bloqué'}`, false);
+                addLog(`❌ ÉCHEC: ${data.user} -> ${type} (Bot ${input}) | ${data.message}`, false);
             }
         });
 
-        // Init au chargement
-        fetch(`${apiBaseUrl}/api/current-match`)
-            .then(r => r.json())
-            .then(updateUI);
+        fetch(`${apiBaseUrl}/api/current-match`).then(r => r.json()).then(updateUI);
     </script>
 </body>
 </html>

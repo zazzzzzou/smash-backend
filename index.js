@@ -79,16 +79,33 @@ async function mapRewardNamesToIds(apiClient) {
     return Object.keys(REWARD_IDS).length;
 }
 
+// ⭐️ FONCTION DE REMBOURSEMENT BLINDÉE DE LOGS ⭐️
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
+    console.log(`[REFUND-LOG] Début tentative: Reward=${rewardId}, ID=${redemptionId}`);
     try {
-        const { accessToken } = await authProvider.getAccessToken(channelUserId); 
-        const response = await fetch(`https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`, {
+        const token = await authProvider.getAccessToken(channelUserId);
+        const accessToken = token.accessToken;
+        
+        const url = `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`;
+        
+        const response = await fetch(url, {
             method: 'PATCH',
-            headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            headers: { 
+                'Client-ID': clientId, 
+                'Authorization': `Bearer ${accessToken}`, 
+                'Content-Type': 'application/json' 
+            },
             body: JSON.stringify({ status: 'CANCELED' }),
         });
+        
+        const responseText = await response.text();
+        console.log(`[REFUND-LOG] Code HTTP: ${response.status} | Réponse: ${responseText}`);
+
         return response.status === 200;
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error(`[REFUND-LOG] Erreur fatale:`, e.message);
+        return false; 
+    }
 }
 
 // --- Routes Admin ---
@@ -129,6 +146,7 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
+    // ⭐️ FIX: Route Stop Bonus ⭐️
     app.post('/admin/stop-bonus', async (req, res) => {
         await closeBonusPhase();
         res.send({ status: 'IN_PROGRESS' });
@@ -197,8 +215,17 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
             io.emit('game-status', { status: 'BONUS_ACTIVE', matchId: currentMatch.matchId, bonusResults: currentMatch.bonusResults });
         } else {
-            await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
-            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg });
+            // ⭐️ LOGIQUE REMBOURSEMENT AVEC INFO LOG ⭐️
+            const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
+            const statusFinal = isRefunded ? " (Remboursé)" : " (ÉCHEC Remboursement)";
+            
+            io.emit('bonus-update', { 
+                type: rewardKey, 
+                user: event.userDisplayName, 
+                input: input || "N/A", 
+                isSuccess: false, 
+                message: logMsg + statusFinal 
+            });
         }
         await currentMatch.save();
     });
