@@ -1,5 +1,3 @@
-// index.js (Version Corrigée et Sécurisée)
-
 require('dotenv').config();
 const express = require('express');
 const { createServer } = require('http');
@@ -16,7 +14,6 @@ const fetch = require('node-fetch');
 const connectDB = require('./db'); 
 const { User, Match, BonusLog } = require('./models');
 
-// --- Configuration ---
 const clientId = process.env.TWITCH_CLIENT_ID;
 const clientSecret = process.env.TWITCH_CLIENT_SECRET;
 const channelUserId = process.env.CHANNEL_USER_ID; 
@@ -38,36 +35,25 @@ const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
 
-// --- Authentification (Version Corrigée) ---
 async function getAuthProvider() {
     let tokenData = null;
     try {
         const data = await fs.readFile(TOKEN_FILE_PATH, 'utf-8');
         tokenData = JSON.parse(data);
     } catch (e) {
-        if (process.env.INITIAL_ACCESS_TOKEN && process.env.INITIAL_REFRESH_TOKEN) {
-            tokenData = {
-                accessToken: process.env.INITIAL_ACCESS_TOKEN,
-                refreshToken: process.env.INITIAL_REFRESH_TOKEN,
-                expiresIn: 0, obtainmentTimestamp: 0
-            };
+        if (process.env.INITIAL_ACCESS_TOKEN) {
+            tokenData = { accessToken: process.env.INITIAL_ACCESS_TOKEN, refreshToken: process.env.INITIAL_REFRESH_TOKEN, expiresIn: 0, obtainmentTimestamp: 0 };
         }
     }
-    if (!tokenData) throw new Error("Aucun token trouvé. Vérifiez tokens.json ou les variables INITIAL_TOKEN.");
-    
     const authProvider = new RefreshingAuthProvider({
         clientId, clientSecret,
         onRefresh: async (userId, newTokenData) => {
             await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(newTokenData, null, 4), 'utf-8');
         }
     });
-
-    // Indispensable pour que Twurple lie le jeton à l'ID
     await authProvider.addUserForToken(tokenData, ['chat']);
     return authProvider;
 }
-
-// --- Utilitaires ---
 
 async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
     if (!rewardId) return;
@@ -77,14 +63,10 @@ async function updateRewardStatus(apiClient, rewardId, isEnabled, isHidden) {
 }
 
 async function mapRewardNamesToIds(apiClient) {
-    console.log("--- Recherche des IDs de récompenses ---");
     const twitchRewards = await apiClient.channelPoints.getCustomRewards(channelUserId);
     NEW_ALL_REWARDS.forEach(r => {
         const found = twitchRewards.find(tr => tr.title.toLowerCase() === r.name.toLowerCase());
-        if (found) {
-            REWARD_IDS[r.key] = found.id;
-            console.log(`✅ ID trouvé pour "${r.name}" : ${found.id}`);
-        }
+        if (found) REWARD_IDS[r.key] = found.id;
     });
     return Object.keys(REWARD_IDS).length;
 }
@@ -94,18 +76,12 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
     try {
         const response = await fetch(`https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`, {
             method: 'PATCH',
-            headers: {
-                'Client-ID': clientId,
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'CANCELED' }),
         });
         return response.status === 200;
     } catch (e) { return false; }
 }
-
-// --- Routes Admin ---
 
 function setupAdminRoutes(app, apiClient, io) {
     const closeBonusPhase = async () => {
@@ -131,7 +107,7 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
     app.post('/admin/start-bonus', bodyParser.json(), async (req, res) => {
-        const duration = parseInt(req.body.duration || 60); 
+        const duration = parseInt(req.body.duration || 20); 
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Status invalide.");
         currentMatch.status = 'BONUS_ACTIVE';
         await currentMatch.save();
@@ -139,6 +115,11 @@ function setupAdminRoutes(app, apiClient, io) {
         setTimeout(closeBonusPhase, duration * 1000);
         io.emit('game-status', { status: 'BONUS_ACTIVE', timer: duration });
         res.send({ status: 'OK' });
+    });
+
+    app.post('/admin/stop-bonus', async (req, res) => {
+        await closeBonusPhase();
+        res.send({ status: 'IN_PROGRESS' });
     });
 
     app.post('/admin/close-match', async (req, res) => {
@@ -163,8 +144,6 @@ function setupAdminRoutes(app, apiClient, io) {
     return { closeBonusPhase };
 }
 
-// --- EventSub ---
-
 function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) { 
     const listener = new EventSubMiddleware({ apiClient, hostName, pathPrefix: '/twitch-events', secret: eventSubSecret });
     listener.apply(app);
@@ -173,10 +152,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') return;
         const rewardKey = Object.keys(REWARD_IDS).find(k => REWARD_IDS[k] === event.rewardId);
         if (!rewardKey) return;
-
         const input = (event.input || '').trim();
         let success = false;
-        let logMsg = "";
 
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const idx = parseInt(input) - 1;
@@ -188,7 +165,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.bonusResults.botLevels[idx] += (isUp ? 1 : -1);
                     currentMatch.bonusResults.botLevels[idx] = Math.max(1, Math.min(9, currentMatch.bonusResults.botLevels[idx]));
                     success = true;
-                } else logMsg = "Déjà utilisé pour ce bot.";
+                }
             }
         } else if (rewardKey === 'CHOIX_PERSO') {
             const botIdx = parseInt(input.split(' ')[0]) - 1;
@@ -207,7 +184,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             io.emit('game-status', { status: 'BONUS_ACTIVE', matchId: currentMatch.matchId, bonusResults: currentMatch.bonusResults });
         } else {
             await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
-            io.emit('bonus-update', { user: event.userDisplayName, isSuccess: false, message: logMsg });
+            io.emit('bonus-update', { user: event.userDisplayName, isSuccess: false });
         }
         await currentMatch.save();
     });
@@ -223,7 +200,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     });
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
-        if (event.id === currentPredictionId && currentMatch && currentMatch.status !== 'CLOSED') {
+        if (event.id === currentPredictionId && currentMatch) {
             if (event.status.toLowerCase() === 'resolved' && event.winningOutcome) {
                 try {
                     const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
@@ -235,19 +212,19 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                         }
                     }
                     currentMatch.status = 'CLOSED';
-                    const matchRes = event.winningOutcome.title.match(/(?:choix|bot|ordi)?\s*(\d+)/i);
+                    // Flexibilité totale sur les majuscules et le format
+                    const winnerTitle = event.winningOutcome.title.toLowerCase();
+                    const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                     await currentMatch.save();
                     currentPredictionId = null;
                     io.emit('game-status', { status: 'CLOSED', winner: currentMatch.winnerBot });
-                } catch (e) { console.error("Erreur clôture match:", e.message); }
+                } catch (e) { console.error("Erreur:", e.message); }
             }
         }
     });
     return listener;
 }
-
-// --- Main ---
 
 async function main() {
     await connectDB();
@@ -263,14 +240,10 @@ async function main() {
     app.use(express.static('public'));
     const authProvider = await getAuthProvider();
     const apiClient = new ApiClient({ authProvider });
-    
-    // On attend que les IDs soient chargés avant de lancer le reste
     await mapRewardNamesToIds(apiClient);
-    
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
     await listener.markAsReady();
-    
-    httpServer.listen(PORT, () => console.log(`🚀 Serveur sur port ${PORT}`));
+    httpServer.listen(PORT, () => console.log(`🚀 Port ${PORT}`));
 }
 main().catch(console.error);
