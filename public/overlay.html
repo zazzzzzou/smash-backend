@@ -5,149 +5,118 @@
     <title>Smash Overlay</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* Fond transparent pour Streamlabs */
-        body {
-            margin: 0;
-            padding: 20px;
-            background-color: transparent;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            overflow: hidden;
+        body { margin: 0; padding: 20px; background-color: transparent; font-family: 'Arial Black', sans-serif; color: white; text-shadow: 2px 2px 0px #000; overflow: hidden; }
+        #overlay-container { width: 380px; background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 15px; border: 3px solid #333; }
+        .bot-row { margin-bottom: 15px; position: relative; transition: all 0.3s; }
+        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .bot-name { font-size: 1.2em; text-transform: uppercase; }
+        .level-badge { background: #e74c3c; color: white; padding: 2px 10px; border-radius: 5px; font-size: 0.8em; border: 2px solid white; }
+        
+        .progress-bg { width: 100%; height: 18px; background: #222; border-radius: 9px; border: 2px solid #555; overflow: hidden; }
+        .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #f1c40f, #f39c12); transition: width 0.6s cubic-bezier(0.17, 0.67, 0.83, 0.67); }
+        
+        .stats-line { display: flex; justify-content: space-between; font-size: 0.75em; margin-top: 3px; color: #bbb; }
+        .steak-count { color: #51cf66; font-weight: bold; }
+
+        /* L'étoile du vainqueur */
+        .winner-star {
+            display: none;
+            position: absolute;
+            left: -35px;
+            top: 5px;
+            font-size: 25px;
+            color: #f1c40f;
+            animation: pulse 1s infinite;
         }
 
-        #overlay-container {
-            width: 400px;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 15px;
-            border-radius: 10px;
-            border-left: 5px solid #007bff;
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
         }
 
-        .bot-row {
-            margin-bottom: 15px;
-        }
+        .is-winner .winner-star { display: block; }
+        .is-winner { transform: scale(1.05); border: 1px solid #f1c40f; border-radius: 5px; padding: 2px; }
 
-        .bot-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 5px;
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-
-        .level-badge {
-            background: #ffc107;
-            color: black;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.9em;
-            text-shadow: none;
-        }
-
-        /* Barre de progression des votes */
-        .progress-bg {
-            width: 100%;
-            height: 12px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 6px;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #007bff, #00d4ff);
-            transition: width 0.5s ease-in-out;
-        }
-
-        .vote-count {
-            font-size: 0.8em;
-            opacity: 0.8;
-            margin-top: 2px;
-            display: block;
-        }
-
-        #bonus-alert {
-            margin-top: 15px;
-            font-style: italic;
-            color: #51cf66;
-            font-size: 0.9em;
-            height: 1.2em;
-        }
+        #bonus-alert { margin-top: 10px; height: 20px; font-size: 0.8em; color: #f39c12; text-align: center; font-style: italic; }
     </style>
 </head>
 <body>
 
     <div id="overlay-container">
-        <div id="bots-container">
-            <div id="bot-0" class="bot-row">
-                <div class="bot-header">
-                    <span class="bot-name">Bot 1</span>
-                    <span class="level-badge">LVL <span class="lvl-val">8</span></span>
-                </div>
-                <div class="progress-bg"><div class="progress-bar"></div></div>
-                <span class="vote-count">0 votes</span>
-            </div>
-            </div>
+        <div id="bots-container"></div>
         <div id="bonus-alert"></div>
     </div>
 
     <script>
         const socket = io();
         
-        // Initialisation des 4 lignes si elles n'existent pas
-        const botsContainer = document.getElementById('bots-container');
-        botsContainer.innerHTML = '';
-        for(let i=0; i<4; i++) {
-            botsContainer.innerHTML += `
-                <div id="bot-${i}" class="bot-row">
-                    <div class="bot-header">
-                        <span class="bot-name">Bot ${i+1}</span>
-                        <span class="level-badge">LVL <span class="lvl-val">8</span></span>
-                    </div>
-                    <div class="progress-bg"><div class="progress-bar"></div></div>
-                    <span class="vote-count">0% (0)</span>
-                </div>`;
+        function initRows() {
+            const container = document.getElementById('bots-container');
+            container.innerHTML = '';
+            for(let i=0; i<4; i++) {
+                container.innerHTML += `
+                    <div id="bot-row-${i+1}" class="bot-row">
+                        <span class="winner-star">⭐</span>
+                        <div class="bot-header">
+                            <span class="bot-name">Bot ${i+1}</span>
+                            <span class="level-badge">LVL <span class="lvl-val">8</span></span>
+                        </div>
+                        <div class="progress-bg"><div class="progress-bar"></div></div>
+                        <div class="stats-line">
+                            <span class="perc-val">0%</span>
+                            <span class="steak-count"><span class="pts-val">0</span> steaks</span>
+                        </div>
+                    </div>`;
+            }
         }
+        initRows();
 
-        socket.on('game-status', (data) => {
-            if (data.bonusResults && data.bonusResults.botLevels) {
-                data.bonusResults.botLevels.forEach((lvl, i) => {
-                    document.querySelector(`#bot-${i} .lvl-val`).textContent = lvl;
-                });
+        socket.on('game-status', (match) => {
+            // Mise à jour des Niveaux
+            match.bonusResults.botLevels.forEach((lvl, i) => {
+                const row = document.getElementById(`bot-row-${i+1}`);
+                if(row) row.querySelector('.lvl-val').textContent = lvl;
+            });
+
+            // Gestion du Vainqueur
+            document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
+            if (match.status === 'CLOSED' && match.winnerBot) {
+                const winnerRow = document.getElementById(`bot-row-${match.winnerBot}`);
+                if (winnerRow) winnerRow.classList.add('is-winner');
+            }
+
+            // Si nouveau match, on reset les barres graphiquement
+            if (match.status === 'AWAITING_PREDICTION') {
+                document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
+                document.querySelectorAll('.pts-val').forEach(v => v.textContent = '0');
+                document.querySelectorAll('.perc-val').forEach(v => v.textContent = '0%');
             }
         });
 
-        // Mise à jour de la progression des votes
-        socket.on('prediction-progress', (data) => {
-            if (data.outcomes) {
-                const totalPoints = data.outcomes.reduce((sum, o) => sum + o.channelPoints, 0);
-                
-                data.outcomes.forEach((outcome, index) => {
-                    // On essaie de trouver le bot correspondant (1-4) dans le titre
-                    const match = outcome.title.match(/\d+/);
-                    if (match) {
-                        const botIdx = parseInt(match[0]) - 1;
-                        if (botIdx >= 0 && botIdx < 4) {
-                            const percent = totalPoints > 0 ? Math.round((outcome.channelPoints / totalPoints) * 100) : 0;
-                            const row = document.getElementById(`bot-${botIdx}`);
-                            row.querySelector('.progress-bar').style.width = percent + '%';
-                            row.querySelector('.vote-count').textContent = `${percent}% (${outcome.users} parieurs)`;
-                        }
+        socket.on('prediction-progress', (outcomes) => {
+            const totalPoints = outcomes.reduce((sum, o) => sum + o.channelPoints, 0);
+            
+            outcomes.forEach(outcome => {
+                const match = outcome.title.match(/\d+/);
+                if (match) {
+                    const botNum = match[0];
+                    const row = document.getElementById(`bot-row-${botNum}`);
+                    if (row) {
+                        const percent = totalPoints > 0 ? Math.round((outcome.channelPoints / totalPoints) * 100) : 0;
+                        row.querySelector('.progress-bar').style.width = percent + '%';
+                        row.querySelector('.perc-val').textContent = percent + '%';
+                        row.querySelector('.pts-val').textContent = outcome.channelPoints.toLocaleString();
                     }
-                });
-            }
+                }
+            });
         });
 
-        // Affichage des alertes bonus
         socket.on('bonus-update', (data) => {
             if (data.isSuccess) {
                 const alertBox = document.getElementById('bonus-alert');
                 alertBox.textContent = `✨ ${data.user} : ${data.type} sur Bot ${data.input}`;
-                
-                // Efface l'alerte après 5 secondes
-                setTimeout(() => { alertBox.textContent = ''; }, 5000);
+                setTimeout(() => { alertBox.textContent = ''; }, 4000);
             }
         });
     </script>
