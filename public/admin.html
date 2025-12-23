@@ -2,28 +2,150 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Admin Smash Betting</title>
+    <title>Admin Smash Betting - 64 Edition</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: sans-serif; margin: 20px; background-color: #f0f2f5; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .status-badge { padding: 5px 15px; border-radius: 20px; font-weight: bold; }
-        .AWAITING_PREDICTION { background: #e2e3e5; color: #383d41; }
-        .BETTING { background: #cce5ff; color: #004085; }
-        .BONUS_ACTIVE { background: #fff3cd; color: #856404; }
-        .IN_PROGRESS { background: #d4edda; color: #155724; }
-        .CLOSED { background: #f8d7da; color: #721c24; }
-        button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 4px; background: #007bff; color: white; margin-right: 10px; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        #log-container { height: 250px; overflow-y: auto; background: #222; color: #eee; padding: 10px; font-family: monospace; border-radius: 4px; }
-        .log-success { color: #51cf66; }
-        .log-fail { color: #ff6b6b; border-left: 3px solid #ff6b6b; padding-left: 5px; }
+        /* Thème Smash 64 - Couleurs du logo BLB */
+        :root {
+            --smash-yellow: #FFD700;
+            --smash-orange: #FF8C00;
+            --blb-blue: #2D3271;
+            --bg-dark: #1a1a1a;
+            --card-bg: #333333;
+            --border-width: 4px;
+        }
+
+        body { 
+            background-color: var(--bg-dark); 
+            color: white; 
+            font-family: 'Arial Black', 'Impact', sans-serif; 
+            margin: 20px; 
+            text-transform: uppercase;
+        }
+
+        h1, h2 { 
+            color: var(--smash-yellow); 
+            -webkit-text-stroke: 1.5px black;
+            letter-spacing: -1px;
+            margin-bottom: 15px;
+        }
+
+        .card { 
+            background: var(--card-bg); 
+            padding: 25px; 
+            border: var(--border-width) solid #555; 
+            box-shadow: 10px 10px 0px #000;
+            margin-bottom: 30px; 
+        }
+
+        /* Status Badges Style 64 */
+        .status-badge { 
+            padding: 10px 20px; 
+            border: 3px solid white; 
+            display: inline-block; 
+            transform: rotate(-1deg);
+            font-size: 1.2em;
+            box-shadow: 4px 4px 0px black;
+            margin-left: 10px;
+        }
+        
+        .AWAITING_PREDICTION { background: #666; color: white; }
+        .BETTING { background: var(--blb-blue); color: var(--smash-yellow); }
+        .BONUS_ACTIVE { background: #e74c3c; color: white; animation: flash 1s infinite; }
+        .IN_PROGRESS { background: #27ae60; color: white; }
+        .CLOSED { background: #000; color: #999; border-color: #333; }
+
+        @keyframes flash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Buttons Style "Menu Smash" */
+        button { 
+            background: var(--smash-yellow); 
+            color: black; 
+            border: var(--border-width) solid #000; 
+            padding: 15px 25px; 
+            font-family: 'Arial Black', sans-serif; 
+            font-size: 1em;
+            text-transform: uppercase; 
+            cursor: pointer;
+            box-shadow: 5px 5px 0px #000;
+            transition: 0.1s;
+            margin-bottom: 10px;
+        }
+
+        button:hover:not(:disabled) { 
+            transform: translate(-2px, -2px); 
+            box-shadow: 7px 7px 0px #000;
+            background: var(--smash-orange);
+        }
+
+        button:active:not(:disabled) { 
+            transform: translate(2px, 2px); 
+            box-shadow: 1px 1px 0px #000;
+        }
+
+        button:disabled { 
+            background: #555; 
+            color: #888;
+            border-color: #222;
+            cursor: not-allowed; 
+            box-shadow: none;
+        }
+
+        input[type="number"] {
+            background: #000;
+            color: var(--smash-yellow);
+            border: 2px solid var(--smash-yellow);
+            padding: 10px;
+            font-family: 'Arial Black', sans-serif;
+            font-size: 1.1em;
+        }
+
+        /* Table Style "Character Select" */
+        table { 
+            width: 100%; 
+            border-collapse: separate; 
+            border-spacing: 10px;
+            margin-top: 10px; 
+        }
+
+        th { 
+            background: var(--blb-blue); 
+            color: white; 
+            padding: 10px; 
+            border: 2px solid var(--smash-yellow);
+        }
+
+        td { 
+            background: #222;
+            border: 3px solid #444; 
+            padding: 20px; 
+            font-size: 2em; 
+            text-align: center;
+            color: var(--smash-yellow);
+            text-shadow: 2px 2px 0px black;
+        }
+
+        /* Logs console style Terminal */
+        #log-container { 
+            height: 250px; 
+            overflow-y: auto; 
+            background: #000; 
+            color: #00FF00; 
+            padding: 15px; 
+            font-family: 'Courier New', monospace; 
+            border: 3px solid var(--blb-blue);
+            text-transform: none; /* Garde les logs lisibles */
+        }
+
+        .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
+        .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
     </style>
 </head>
 <body>
-    <h1>Panneau Admin - Smash Betting</h1>
+    <h1>Panneau Admin - BLB Smash Betting</h1>
 
     <div class="card">
         <h2>Contrôle du Match</h2>
@@ -33,7 +155,7 @@
         
         <div style="margin-top: 20px;">
             <label>Timer Bonus : </label>
-            <input type="number" id="bonus-duration" value="20" style="width: 50px;">
+            <input type="number" id="bonus-duration" value="20" style="width: 70px;">
             <button id="btn-start-bonus" onclick="startBonusPhase()" disabled>2. Lancer Phase Bonus</button>
             <button id="btn-stop-bonus" onclick="stopBonusPhase()" style="background:#e67e22" disabled>Arrêter Bonus</button>
         </div>
@@ -46,8 +168,17 @@
     <div class="card">
         <h2>Niveaux des Bots</h2>
         <table>
-            <tr><th>Bot 1</th><th>Bot 2</th><th>Bot 3</th><th>Bot 4</th></tr>
-            <tr><td id="lvl-0">8</td><td id="lvl-1">8</td><td id="lvl-2">8</td><td id="lvl-3">8</td></tr>
+            <thead>
+                <tr><th>Bot 1</th><th>Bot 2</th><th>Bot 3</th><th>Bot 4</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="lvl-0">8</td>
+                    <td id="lvl-1">8</td>
+                    <td id="lvl-2">8</td>
+                    <td id="lvl-3">8</td>
+                </tr>
+            </tbody>
         </table>
     </div>
 
@@ -97,7 +228,7 @@
             });
         }
         async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
-        async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
+        async function closeMatch() { if(confirm("Voulez-vous vraiment clôturer le match ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
 
         socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {

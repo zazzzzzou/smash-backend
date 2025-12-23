@@ -29,11 +29,10 @@ const NEW_ALL_REWARDS = [
     { name: process.env.REWARD_NAME_CHOIX_PERSO, key: 'CHOIX_PERSO' }
 ];
 
-// --- Variables d'état ---
 let currentMatchId = 0; 
 let currentMatch = null; 
 let currentPredictionId = null; 
-let lastPredictionData = null; // Mémoire pour l'overlay (Steaks et % )
+let lastPredictionData = null; // ⭐️ MÉMOIRE : Pour que l'overlay reste à jour après refresh
 const BOT_LEVEL_MAX = 9;
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -82,9 +81,13 @@ async function mapRewardNamesToIds(apiClient) {
 }
 
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
+    console.log(`[REFUND-LOG] Début tentative: Reward=${rewardId}, ID=${redemptionId}`);
     try {
         const token = await authProvider.getAccessTokenForUser(channelUserId);
-        const response = await fetch(`https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`, {
+        if (!token || !token.accessToken) return false;
+        
+        const url = `https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions?broadcaster_id=${channelUserId}&reward_id=${rewardId}&id=${redemptionId}`;
+        const response = await fetch(url, {
             method: 'PATCH',
             headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${token.accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'CANCELED' }),
@@ -100,7 +103,7 @@ function setupAdminRoutes(app, apiClient, io) {
             currentMatch.status = 'IN_PROGRESS';
             currentMatch = await currentMatch.save(); 
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
-            io.emit('game-status', currentMatch);
+            io.emit('game-status', currentMatch); // ⭐️ Simplifié: Envoie l'objet complet
         }
     };
 
@@ -112,7 +115,7 @@ function setupAdminRoutes(app, apiClient, io) {
             matchId: currentMatchId, status: 'AWAITING_PREDICTION',
             bonusResults: { botLevels: [8,8,8,8], levelUpUsedForBot: [false,false,false,false], levelDownUsedForBot: [false,false,false,false], charSelectUsedForBot: [false,false,false,false], log: [] }
         });
-        lastPredictionData = null; // Reset de la mémoire overlay pour nouveau match
+        lastPredictionData = null; // ⭐️ Reset des stats pour l'overlay
         await currentMatch.save();
         io.emit('game-status', currentMatch);
         res.send({ status: 'OK' });
@@ -130,7 +133,10 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    app.post('/admin/stop-bonus', async (req, res) => { await closeBonusPhase(); res.send({ status: 'OK' }); });
+    app.post('/admin/stop-bonus', async (req, res) => {
+        await closeBonusPhase();
+        res.send({ status: 'IN_PROGRESS' });
+    });
 
     app.post('/admin/close-match', async (req, res) => {
         if (currentMatch) {
@@ -139,14 +145,6 @@ function setupAdminRoutes(app, apiClient, io) {
             io.emit('game-status', currentMatch);
         }
         res.send({ status: 'OK' });
-    });
-
-    app.get('/api/classement/points', async (req, res) => {
-        res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id'));
-    });
-
-    app.get('/api/classement/bonus', async (req, res) => {
-        res.json(await User.find({}).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount -_id'));
     });
 
     app.get('/api/current-match', async (req, res) => res.json(currentMatch || { status: 'CLOSED' }));
@@ -177,14 +175,14 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.bonusResults.botLevels[idx] += (isUp ? 1 : -1);
                     currentMatch.bonusResults.botLevels[idx] = Math.max(1, Math.min(9, currentMatch.bonusResults.botLevels[idx]));
                     success = true;
-                } else logMsg = "Déjà fait pour ce bot.";
-            } else logMsg = "Chiffre 1-4 requis.";
+                } else logMsg = "Déjà fait.";
+            }
         } else if (rewardKey === 'CHOIX_PERSO') {
             const botIdx = parseInt(input.split(' ')[0]) - 1;
             if (botIdx >= 0 && botIdx <= 3 && !currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
                 currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
                 success = true;
-            } else logMsg = "Bot invalide ou déjà pris.";
+            }
         }
 
         if (success) {
@@ -193,10 +191,10 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             await User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true });
             await (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
-            io.emit('game-status', currentMatch);
+            io.emit('game-status', currentMatch); // ⭐️ Met à jour les LVL sur l'overlay
         } else {
-            const isRef = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
-            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRef ? " (Remboursé)" : "") });
+            const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
         }
         await currentMatch.save();
     });
@@ -212,7 +210,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     });
 
     listener.onChannelPredictionProgress(channelUserId, (event) => {
-        // Sauvegarde de l'état pour les nouveaux clients (overlay)
+        // ⭐️ Mise en mémoire pour les nouveaux arrivants sur la page overlay
         lastPredictionData = event.outcomes.map(o => ({
             title: o.title,
             channelPoints: o.channelPoints,
@@ -223,26 +221,19 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
         if (event.id === currentPredictionId && currentMatch) {
-            if (event.status.toLowerCase() === 'resolved') {
+            if (event.status.toLowerCase() === 'resolved' && event.winningOutcome) {
                 try {
                     const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
-                    const winnerId = event.winningOutcome?.id;
-                    const outcome = prediction.outcomes.find(o => o.id === winnerId);
-
+                    const outcome = prediction.outcomes.find(o => o.id === event.winningOutcome.id);
                     if (outcome) {
                         const voters = outcome.topPredictors || []; 
-                        if (Array.isArray(voters)) {
-                            for (const v of voters) {
-                                if (v.userId) {
-                                    await User.findOneAndUpdate({ twitchId: v.userId }, { $inc: { totalPoints: 1 }, $setOnInsert: { username: v.userName } }, { upsert: true });
-                                }
-                            }
+                        for (const v of voters) {
+                            if (v.userId) await User.findOneAndUpdate({ twitchId: v.userId }, { $inc: { totalPoints: 1 }, $setOnInsert: { username: v.userName } }, { upsert: true });
                         }
-                        const winnerTitle = outcome.title.toLowerCase();
-                        const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
-                        currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                     }
                     currentMatch.status = 'CLOSED';
+                    const matchRes = event.winningOutcome.title.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
+                    currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                     await currentMatch.save();
                     currentPredictionId = null;
                     io.emit('game-status', currentMatch);
@@ -256,25 +247,23 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 // --- Main ---
 async function main() {
     await connectDB();
-    const last = await Match.findOne({}).sort({ matchId: -1 });
-    if (last) { 
-        currentMatch = last; 
-        currentMatchId = last.matchId; 
-        currentPredictionId = last.twitchPredictionId; 
+    const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
+    if (lastMatch) {
+        currentMatch = lastMatch; 
+        currentMatchId = lastMatch.matchId;
+        currentPredictionId = lastMatch.twitchPredictionId;
     }
-    
     const app = express();
     const httpServer = createServer(app);
     const io = new Server(httpServer);
     app.use(express.static('public'));
-    
     const authProvider = await getAuthProvider();
     const apiClient = new ApiClient({ authProvider });
     await mapRewardNamesToIds(apiClient);
-    
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
-    
+
+    // ⭐️ GESTION DE LA PERSISTANCE LORS DU REFRESH ⭐️
     io.on('connection', (socket) => {
         if (currentMatch) socket.emit('game-status', currentMatch);
         if (lastPredictionData) socket.emit('prediction-progress', lastPredictionData);
