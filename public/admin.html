@@ -5,7 +5,6 @@
     <title>Admin Smash Betting - 64 Edition</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* Thème Smash 64 - Couleurs du logo BLB */
         :root {
             --smash-yellow: #FFD700;
             --smash-orange: #FF8C00;
@@ -14,202 +13,68 @@
             --card-bg: #333333;
             --border-width: 4px;
         }
-
-        body { 
-            background-color: var(--bg-dark); 
-            color: white; 
-            font-family: 'Arial Black', 'Impact', sans-serif; 
-            margin: 20px; 
-            text-transform: uppercase;
-        }
-
-        h1, h2 { 
-            color: var(--smash-yellow); 
-            -webkit-text-stroke: 1.5px black;
-            letter-spacing: -1px;
-            margin-bottom: 15px;
-        }
-
-        .card { 
-            background: var(--card-bg); 
-            padding: 25px; 
-            border: var(--border-width) solid #555; 
-            box-shadow: 10px 10px 0px #000;
-            margin-bottom: 30px; 
-        }
-
-        /* Status Badges Style 64 */
-        .status-badge { 
-            padding: 10px 20px; 
-            border: 3px solid white; 
-            display: inline-block; 
-            transform: rotate(-1deg);
-            font-size: 1.2em;
-            box-shadow: 4px 4px 0px black;
-            margin-left: 10px;
-        }
-        
-        .AWAITING_PREDICTION { background: #666; color: white; }
+        body { background-color: var(--bg-dark); color: white; font-family: 'Arial Black', sans-serif; margin: 20px; text-transform: uppercase; }
+        h1, h2 { color: var(--smash-yellow); -webkit-text-stroke: 1.5px black; letter-spacing: -1px; }
+        .card { background: var(--card-bg); padding: 25px; border: var(--border-width) solid #555; box-shadow: 10px 10px 0px #000; margin-bottom: 30px; }
+        .status-badge { padding: 10px 20px; border: 3px solid white; display: inline-block; transform: rotate(-1deg); font-size: 1.2em; box-shadow: 4px 4px 0px black; margin-left: 10px; }
+        .AWAITING_PREDICTION { background: #666; }
         .BETTING { background: var(--blb-blue); color: var(--smash-yellow); }
-        .BONUS_ACTIVE { background: #e74c3c; color: white; animation: flash 1s infinite; }
-        .IN_PROGRESS { background: #27ae60; color: white; }
-        .CLOSED { background: #000; color: #999; border-color: #333; }
-
-        @keyframes flash {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        /* Buttons Style "Menu Smash" */
-        button { 
-            background: var(--smash-yellow); 
-            color: black; 
-            border: var(--border-width) solid #000; 
-            padding: 15px 25px; 
-            font-family: 'Arial Black', sans-serif; 
-            font-size: 1em;
-            text-transform: uppercase; 
-            cursor: pointer;
-            box-shadow: 5px 5px 0px #000;
-            transition: 0.1s;
-            margin-bottom: 10px;
-        }
-
-        button:hover:not(:disabled) { 
-            transform: translate(-2px, -2px); 
-            box-shadow: 7px 7px 0px #000;
-            background: var(--smash-orange);
-        }
-
-        button:active:not(:disabled) { 
-            transform: translate(2px, 2px); 
-            box-shadow: 1px 1px 0px #000;
-        }
-
-        button:disabled { 
-            background: #555; 
-            color: #888;
-            border-color: #222;
-            cursor: not-allowed; 
-            box-shadow: none;
-        }
-
-        input[type="number"] {
-            background: #000;
-            color: var(--smash-yellow);
-            border: 2px solid var(--smash-yellow);
-            padding: 10px;
-            font-family: 'Arial Black', sans-serif;
-            font-size: 1.1em;
-        }
-
-        /* Table Style "Character Select" */
-        table { 
-            width: 100%; 
-            border-collapse: separate; 
-            border-spacing: 10px;
-            margin-top: 10px; 
-        }
-
-        th { 
-            background: var(--blb-blue); 
-            color: white; 
-            padding: 10px; 
-            border: 2px solid var(--smash-yellow);
-        }
-
-        td { 
-            background: #222;
-            border: 3px solid #444; 
-            padding: 20px; 
-            font-size: 2em; 
-            text-align: center;
-            color: var(--smash-yellow);
-            text-shadow: 2px 2px 0px black;
-        }
-
-        /* Logs console style Terminal */
-        #log-container { 
-            height: 250px; 
-            overflow-y: auto; 
-            background: #000; 
-            color: #00FF00; 
-            padding: 15px; 
-            font-family: 'Courier New', monospace; 
-            border: 3px solid var(--blb-blue);
-            text-transform: none; /* Garde les logs lisibles */
-        }
-
+        .BONUS_ACTIVE { background: #e74c3c; animation: flash 1s infinite; }
+        @keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        button { background: var(--smash-yellow); color: black; border: var(--border-width) solid #000; padding: 15px 25px; font-family: 'Arial Black'; text-transform: uppercase; cursor: pointer; box-shadow: 5px 5px 0px #000; transition: 0.1s; margin-bottom: 10px; }
+        button:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 7px 7px 0px #000; background: var(--smash-orange); }
+        button:disabled { background: #555; color: #888; cursor: not-allowed; box-shadow: none; }
+        table { width: 100%; border-spacing: 10px; }
+        td { background: #222; border: 3px solid #444; padding: 20px; font-size: 2em; text-align: center; color: var(--smash-yellow); text-shadow: 2px 2px 0px black; }
+        #log-container { height: 250px; overflow-y: auto; background: #000; color: #00FF00; padding: 15px; font-family: 'Courier New', monospace; border: 3px solid var(--blb-blue); text-transform: none; }
         .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
         .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
     </style>
 </head>
 <body>
     <h1>Panneau Admin - BLB Smash Betting</h1>
-
     <div class="card">
         <h2>Contrôle du Match</h2>
         <p>Statut : <span id="match-status" class="status-badge CLOSED">CLOSED</span> | ID : <span id="match-id-display">-</span></p>
-        
         <button id="btn-start-match" onclick="startNewMatch()">1. Démarrer Nouveau Match</button>
-        
         <div style="margin-top: 20px;">
             <label>Timer Bonus : </label>
-            <input type="number" id="bonus-duration" value="20" style="width: 70px;">
+            <input type="number" id="bonus-duration" value="20" style="width: 70px; background: #000; color: gold; border: 2px solid gold; padding: 5px;">
             <button id="btn-start-bonus" onclick="startBonusPhase()" disabled>2. Lancer Phase Bonus</button>
             <button id="btn-stop-bonus" onclick="stopBonusPhase()" style="background:#e67e22" disabled>Arrêter Bonus</button>
         </div>
-
         <div style="margin-top: 20px;">
             <button id="btn-close-match" onclick="closeMatch()" style="background:#c0392b" disabled>Clôturer Match</button>
         </div>
     </div>
-
     <div class="card">
-        <h2>Niveaux des Bots</h2>
+        <h2>Niveaux des Ordis</h2>
         <table>
-            <thead>
-                <tr><th>Bot 1</th><th>Bot 2</th><th>Bot 3</th><th>Bot 4</th></tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td id="lvl-0">8</td>
-                    <td id="lvl-1">8</td>
-                    <td id="lvl-2">8</td>
-                    <td id="lvl-3">8</td>
-                </tr>
-            </tbody>
+            <tr><th>Ordi 1</th><th>Ordi 2</th><th>Ordi 3</th><th>Ordi 4</th></tr>
+            <tr><td id="lvl-0">8</td><td id="lvl-1">8</td><td id="lvl-2">8</td><td id="lvl-3">8</td></tr>
         </table>
     </div>
-
     <div class="card">
-        <h2>Log d'activité (Temps réel)</h2>
+        <h2>Log d'activité</h2>
         <div id="log-container"></div>
     </div>
-
     <script>
         const socket = io();
         const apiBaseUrl = window.location.origin;
-
         function updateUI(data) {
             const status = data.status || 'CLOSED';
             const badge = document.getElementById('match-status');
             badge.textContent = status;
             badge.className = 'status-badge ' + status;
             document.getElementById('match-id-display').textContent = data.matchId || '-';
-
             document.getElementById('btn-start-match').disabled = (status !== 'CLOSED');
             document.getElementById('btn-start-bonus').disabled = (status !== 'BETTING');
             document.getElementById('btn-stop-bonus').disabled = (status !== 'BONUS_ACTIVE');
             document.getElementById('btn-close-match').disabled = (status === 'CLOSED');
-
             if (data.bonusResults && data.bonusResults.botLevels) {
-                data.bonusResults.botLevels.forEach((lvl, i) => {
-                    document.getElementById(`lvl-${i}`).textContent = lvl;
-                });
+                data.bonusResults.botLevels.forEach((lvl, i) => { document.getElementById(`lvl-${i}`).textContent = lvl; });
             }
         }
-
         function addLog(msg, isSuccess = true) {
             const container = document.getElementById('log-container');
             const div = document.createElement('div');
@@ -217,30 +82,23 @@
             div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
             container.prepend(div);
         }
-
-        async function startNewMatch() { fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' }); }
+        async function startNewMatch() { 
+            document.getElementById('log-container').innerHTML = ''; // REFRESH LOGS
+            addLog("Nouveau match initialisé. Logs vidés.");
+            fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' }); 
+        }
         async function startBonusPhase() {
             const d = document.getElementById('bonus-duration').value;
-            fetch(`${apiBaseUrl}/admin/start-bonus`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ duration: parseInt(d) })
-            });
+            fetch(`${apiBaseUrl}/admin/start-bonus`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ duration: parseInt(d) }) });
         }
         async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
-        async function closeMatch() { if(confirm("Voulez-vous vraiment clôturer le match ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
-
+        async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
         socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {
             const type = data.type || "Bonus";
             const input = data.input || "N/A";
-            if (data.isSuccess) {
-                addLog(`✨ SUCCÈS: ${data.user} -> ${type} (Bot ${input})`);
-            } else {
-                addLog(`❌ ÉCHEC: ${data.user} -> ${type} (Bot ${input}) | ${data.message}`, false);
-            }
+            addLog(`${data.isSuccess ? '✨ SUCCÈS' : '❌ ÉCHEC'}: ${data.user} -> ${type} (Ordi ${input})`, data.isSuccess);
         });
-
         fetch(`${apiBaseUrl}/api/current-match`).then(r => r.json()).then(updateUI);
     </script>
 </body>

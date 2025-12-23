@@ -4,245 +4,66 @@
     <meta charset="UTF-8">
     <title>Classements Smash Betting - Hall of Fame</title>
     <style>
-        /* Thème Smash 64 - Couleurs BLB Smash */
-        :root {
-            --smash-yellow: #FFD700;
-            --smash-orange: #FF8C00;
-            --blb-blue: #2D3271;
-            --bg-dark: #111;
-            --card-bg: #222;
-        }
-
-        body { 
-            font-family: 'Arial Black', 'Impact', sans-serif; 
-            margin: 0; 
-            padding: 20px;
-            background-color: var(--bg-dark); 
-            background-image: radial-gradient(circle, #333 1px, transparent 1px);
-            background-size: 30px 30px; /* Texture de fond légère style menu retro */
-            color: white;
-            display: flex; 
-            flex-direction: column; 
-            align-items: center;
-            text-transform: uppercase;
-        }
-
-        h1 {
-            font-size: 3.5em;
-            color: var(--smash-yellow);
-            -webkit-text-stroke: 2px black;
-            text-shadow: 4px 4px 0px #000;
-            letter-spacing: -2px;
-            margin-bottom: 40px;
-        }
-
-        .classement-container {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 40px;
-            width: 95%;
-            max-width: 1300px;
-        }
-
-        .classement-box { 
-            background: var(--card-bg); 
-            padding: 25px; 
-            border: 5px solid #444; 
-            box-shadow: 12px 12px 0px #000;
-            flex: 1;
-            min-width: 400px;
-        }
-
-        #bonus-ranking-box {
-            flex: 1.5;
-            border-color: var(--blb-blue);
-        }
-
-        #points-ranking-box {
-            border-color: var(--smash-orange);
-        }
-
-        h2 { 
-            color: white; 
-            background: linear-gradient(90deg, var(--blb-blue), transparent);
-            padding: 10px;
-            border-left: 8px solid var(--smash-yellow);
-            margin-top: 0;
-            font-size: 1.2em;
-            text-shadow: 2px 2px 0px #000;
-        }
-
-        table { 
-            width: 100%; 
-            border-collapse: separate; 
-            border-spacing: 0 8px;
-            margin-top: 15px; 
-        }
-
-        th { 
-            background-color: #000; 
-            color: var(--smash-yellow);
-            padding: 12px;
-            font-size: 0.9em;
-            border-bottom: 3px solid var(--smash-yellow);
-        }
-
-        td { 
-            padding: 15px; 
-            background: #333;
-            border-top: 2px solid #555;
-            border-bottom: 2px solid #000;
-            font-size: 1.1em;
-        }
-
-        /* Styles Spécifiques aux Rangs (Podium) */
-        .rank-1 td { 
-            background: linear-gradient(90deg, #FFD700, #BF953F) !important; 
-            color: black !important;
-            font-size: 1.4em;
-            text-shadow: none;
-            border-color: white;
-        }
-        .rank-2 td { 
-            background: linear-gradient(90deg, #E6E6E6, #999) !important; 
-            color: black !important;
-            border-color: white;
-        }
-        .rank-3 td { 
-            background: linear-gradient(90deg, #CD7F32, #8C5233) !important; 
-            color: white !important;
-            border-color: #5d3a24;
-        }
-
-        .user-cell {
-            font-weight: bold;
-            letter-spacing: 1px;
-        }
-
-        .score-cell {
-            font-size: 1.3em;
-            color: var(--smash-yellow);
-            text-align: right !important;
-        }
-        
-        /* Animation subtile pour le Top 1 */
-        .rank-1 {
-            animation: glow 2s infinite alternate;
-        }
-
-        @keyframes glow {
-            from { box-shadow: 0 0 10px gold; }
-            to { box-shadow: 0 0 25px gold; }
-        }
+        :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: #111; }
+        body { font-family: 'Arial Black', sans-serif; background-color: var(--bg-dark); color: white; text-align: center; text-transform: uppercase; }
+        h1 { font-size: 3.5em; color: var(--smash-yellow); -webkit-text-stroke: 2px black; text-shadow: 4px 4px 0px #000; }
+        .classement-container { display: flex; justify-content: center; gap: 40px; padding: 20px; }
+        .classement-box { background: #222; padding: 25px; border: 5px solid #444; box-shadow: 12px 12px 0px #000; flex: 1; }
+        h2 { background: linear-gradient(90deg, var(--blb-blue), transparent); padding: 10px; border-left: 8px solid var(--smash-yellow); }
+        table { width: 100%; border-spacing: 0 8px; }
+        th { color: var(--smash-yellow); border-bottom: 3px solid var(--smash-yellow); padding: 10px; }
+        td { background: #333; padding: 15px; border-top: 2px solid #555; }
+        .rank-1 td { background: linear-gradient(90deg, #FFD700, #BF953F) !important; color: black; }
     </style>
 </head>
 <body>
     <h1>Classements Smash Betting</h1>
-
     <div class="classement-container">
-        
         <div class="classement-box" id="points-ranking-box">
-            <h2>🏆 Hall of Fame : Points</h2>
+            <h2>🏆 Nombre de prédictions remportées</h2>
             <table id="classement-points">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Utilisateur</th>
-                        <th style="text-align:right">Points</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    </tbody>
+                <thead><tr><th>#</th><th>Utilisateur</th><th style="text-align:right">Points</th></tr></thead>
+                <tbody></tbody>
             </table>
         </div>
-
         <div class="classement-box" id="bonus-ranking-box">
-            <h2>✨ Experts : Bonus utilisés</h2>
+            <h2>✨ Nombre de bonus utilisés</h2>
             <table id="classement-bonus">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Utilisateur</th>
-                        <th>Total</th>
-                        <th>LU</th>
-                        <th>LD</th>
-                        <th>CP</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    </tbody>
+                <thead><tr><th>#</th><th>Utilisateur</th><th>Total</th><th>LU</th><th>LD</th><th>CP</th></tr></thead>
+                <tbody></tbody>
             </table>
         </div>
     </div>
-
     <script>
         const apiBaseUrl = window.location.origin;
-
-        function applyRankClass(row, rank) {
-            if (rank === 1) row.className = 'rank-1';
-            else if (rank === 2) row.className = 'rank-2';
-            else if (rank === 3) row.className = 'rank-3';
+        function applyRank(row, rank) { if (rank <= 3) row.className = 'rank-' + rank; }
+        function refresh() {
+            fetch(`${apiBaseUrl}/api/classement/points`).then(r => r.json()).then(data => {
+                const body = document.getElementById('classement-points').querySelector('tbody');
+                body.innerHTML = '';
+                data.forEach((item, i) => {
+                    const row = body.insertRow(); applyRank(row, i+1);
+                    row.insertCell().textContent = i+1;
+                    row.insertCell().textContent = item.username;
+                    row.insertCell().textContent = item.totalPoints;
+                });
+            });
+            fetch(`${apiBaseUrl}/api/classement/bonus`).then(r => r.json()).then(data => {
+                const body = document.getElementById('classement-bonus').querySelector('tbody');
+                body.innerHTML = '';
+                data.forEach((item, i) => {
+                    const row = body.insertRow(); applyRank(row, i+1);
+                    row.insertCell().textContent = i+1;
+                    row.insertCell().textContent = item.username;
+                    row.insertCell().textContent = item.bonusUsedCount;
+                    row.insertCell().textContent = item.luCount || 0;
+                    row.insertCell().textContent = item.ldCount || 0;
+                    row.insertCell().textContent = item.cpCount || 0;
+                });
+            });
         }
-
-        function fetchAndDisplayPoints() {
-            fetch(`${apiBaseUrl}/api/classement/points`)
-                .then(response => response.json())
-                .then(data => {
-                    const tableBody = document.getElementById('classement-points').querySelector('tbody');
-                    tableBody.innerHTML = '';
-
-                    data.forEach((item, index) => {
-                        const row = tableBody.insertRow();
-                        const rank = index + 1;
-                        applyRankClass(row, rank);
-
-                        row.insertCell().innerHTML = `<strong>${rank}</strong>`;
-                        const nameCell = row.insertCell();
-                        nameCell.textContent = item.username;
-                        nameCell.className = "user-cell";
-                        
-                        const scoreCell = row.insertCell();
-                        scoreCell.textContent = item.totalPoints;
-                        scoreCell.className = "score-cell";
-                    });
-                })
-                .catch(error => console.error(`Erreur points:`, error));
-        }
-        
-        function fetchAndDisplayBonus() {
-            fetch(`${apiBaseUrl}/api/classement/bonus`)
-                .then(response => response.json())
-                .then(data => {
-                    const tableBody = document.getElementById('classement-bonus').querySelector('tbody');
-                    tableBody.innerHTML = '';
-
-                    data.forEach((item, index) => {
-                        const row = tableBody.insertRow();
-                        const rank = index + 1;
-                        applyRankClass(row, rank);
-
-                        row.insertCell().textContent = rank;
-                        const nameCell = row.insertCell();
-                        nameCell.textContent = item.username;
-                        nameCell.className = "user-cell";
-                        
-                        row.insertCell().textContent = item.bonusUsedCount;
-                        row.insertCell().textContent = item.luCount || 0;
-                        row.insertCell().textContent = item.ldCount || 0;
-                        row.insertCell().textContent = item.cpCount || 0;
-                    });
-                })
-                .catch(error => console.error(`Erreur bonus:`, error));
-        }
-
-        function refreshClassements() {
-            fetchAndDisplayPoints();
-            fetchAndDisplayBonus();
-        }
-
-        document.addEventListener('DOMContentLoaded', refreshClassements);
-        setInterval(refreshClassements, 30000); 
+        document.addEventListener('DOMContentLoaded', refresh);
+        setInterval(refresh, 30000);
     </script>
 </body>
 </html>

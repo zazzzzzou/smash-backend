@@ -5,218 +5,86 @@
     <title>Smash Overlay 64 Edition</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* Thème Smash 64 - Couleurs BLB Smash */
-        :root {
-            --smash-yellow: #FFD700;
-            --smash-orange: #FF8C00;
-            --blb-blue: #2D3271;
-            --bg-dark: rgba(0, 0, 0, 0.85);
-            --border-color: #FFD700;
-        }
-
-        body { 
-            margin: 0; 
-            padding: 20px; 
-            background-color: transparent; 
-            font-family: 'Arial Black', 'Impact', sans-serif; 
-            color: white; 
-            overflow: hidden; 
-            text-transform: uppercase;
-        }
-
-        #overlay-container { 
-            width: 380px; 
-            background: var(--bg-dark); 
-            padding: 20px; 
-            border: 4px solid var(--border-color); 
-            box-shadow: 0 0 15px rgba(0,0,0,1), inset 0 0 10px rgba(255,215,0,0.3);
-            border-radius: 0px; /* Style angulaire 64 */
-        }
-
-        .bot-row { 
-            margin-bottom: 20px; 
-            position: relative; 
-            transition: all 0.3s ease; 
-        }
-
-        .bot-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: flex-end; 
-            margin-bottom: 5px;
-            letter-spacing: -1px;
-        }
-
-        .bot-name { 
-            font-size: 1.4em; 
-            color: #FFF; 
-            -webkit-text-stroke: 1px #000;
-            text-shadow: 2px 2px 0px #000;
-        }
-
+        :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: rgba(0, 0, 0, 0.85); }
+        body { margin: 0; padding: 20px; background-color: transparent; font-family: 'Arial Black', sans-serif; color: white; overflow: hidden; text-transform: uppercase; }
+        #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
+        .bot-row { margin-bottom: 20px; position: relative; }
+        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .bot-name { font-size: 1.4em; -webkit-text-stroke: 1px #000; text-shadow: 2px 2px 0px #000; }
         .level-badge { 
-            background: var(--blb-blue); 
-            color: var(--smash-yellow); 
-            padding: 2px 10px; 
-            font-size: 0.9em; 
-            border: 2px solid var(--smash-yellow);
-            transform: skew(-10deg);
-            box-shadow: 2px 2px 0px #000;
+            display: flex; align-items: center; background: var(--blb-blue); color: var(--smash-yellow); 
+            padding: 2px 10px; border: 2px solid var(--smash-yellow); transform: skew(-10deg); box-shadow: 2px 2px 0px #000; 
         }
-        
-        .progress-bg { 
-            width: 100%; 
-            height: 24px; 
-            background: #111; 
-            border: 3px solid #FFF; 
-            box-sizing: border-box;
-            overflow: hidden;
-            box-shadow: inset 2px 2px 5px #000;
-        }
-
-        .progress-bar { 
-            height: 100%; 
-            width: 0%; 
-            background: linear-gradient(to bottom, #FF4500, #FF8C00); /* Dégradé feu */
-            transition: width 0.6s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-        }
-        
-        .stats-line { 
-            display: flex; 
-            justify-content: space-between; 
-            font-size: 0.85em; 
-            margin-top: 5px; 
-            color: var(--smash-yellow);
-            font-style: italic;
-            text-shadow: 1px 1px 0px #000;
-        }
-
-        .steak-count { 
-            color: #51cf66; 
-            font-weight: bold; 
-        }
-
-        /* Étoile de victoire Smash 64 */
-        .winner-star {
-            display: none;
-            position: absolute;
-            left: -45px;
-            top: 0px;
-            font-size: 35px;
-            color: var(--smash-yellow);
-            filter: drop-shadow(0 0 5px gold);
-            animation: star-jump 0.8s infinite ease-in-out;
-            -webkit-text-stroke: 1px black;
-        }
-
-        @keyframes star-jump {
-            0%, 100% { transform: translateY(0) scale(1); }
-            50% { transform: translateY(-10px) scale(1.2); }
-        }
-
-        /* État Gagnant */
+        .winner-star { display: none; font-size: 1.2em; margin-right: 5px; animation: star-jump 0.8s infinite ease-in-out; }
+        @keyframes star-jump { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
         .is-winner .winner-star { display: block; }
-        .is-winner { 
-            background: rgba(255, 215, 0, 0.2); 
-            padding: 5px; 
-            outline: 2px solid gold; 
-            transform: scale(1.02);
-        }
-
-        #bonus-alert { 
-            margin-top: 15px; 
-            height: 25px; 
-            font-size: 1em; 
-            color: #00D1FF; 
-            text-align: center; 
-            font-weight: bold;
-            font-style: italic;
-            text-shadow: 1px 1px 2px #000;
-        }
+        .progress-bg { width: 100%; height: 24px; background: #111; border: 3px solid #FFF; overflow: hidden; }
+        .progress-bar { height: 100%; width: 0%; background: linear-gradient(to bottom, #FF4500, #FF8C00); transition: width 0.6s ease-out; }
+        .stats-line { display: flex; justify-content: space-between; font-size: 0.85em; margin-top: 5px; color: var(--smash-yellow); font-style: italic; }
+        #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
     </style>
 </head>
 <body>
-
     <div id="overlay-container">
         <div id="bots-container"></div>
         <div id="bonus-alert"></div>
     </div>
-
     <script>
         const socket = io();
-        
-        // Initialisation structurelle des 4 bots
         function initRows() {
             const container = document.getElementById('bots-container');
             container.innerHTML = '';
             for(let i=0; i<4; i++) {
                 container.innerHTML += `
                     <div id="bot-row-${i+1}" class="bot-row">
-                        <span class="winner-star">⭐</span>
                         <div class="bot-header">
-                            <span class="bot-name">Bot ${i+1}</span>
-                            <span class="level-badge">LVL <span class="lvl-val">8</span></span>
+                            <span class="bot-name">Ordi ${i+1}</span>
+                            <span class="level-badge">
+                                <span class="winner-star">⭐</span>
+                                <span>LVL <span class="lvl-val">8</span></span>
+                            </span>
                         </div>
                         <div class="progress-bg"><div class="progress-bar"></div></div>
-                        <div class="stats-line">
-                            <span class="perc-val">0%</span>
-                            <span class="steak-count"><span class="pts-val">0</span> steaks</span>
-                        </div>
+                        <div class="stats-line"><span class="perc-val">0%</span><span class="steak-count"><span class="pts-val">0</span> steaks</span></div>
                     </div>`;
             }
         }
         initRows();
-
         socket.on('game-status', (match) => {
-            // 1. Mise à jour des Niveaux
-            if (match.bonusResults && match.bonusResults.botLevels) {
+            if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
                     if(row) row.querySelector('.lvl-val').textContent = lvl;
                 });
             }
-
-            // 2. Gestion du Vainqueur (Étoile)
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
             if (match.status === 'CLOSED' && match.winnerBot) {
-                const winnerRow = document.getElementById(`bot-row-${match.winnerBot}`);
-                if (winnerRow) winnerRow.classList.add('is-winner');
+                document.getElementById(`bot-row-${match.winnerBot}`).classList.add('is-winner');
             }
-
-            // 3. Reset visuel si nouveau match
             if (match.status === 'AWAITING_PREDICTION') {
                 document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
-                document.querySelectorAll('.pts-val').forEach(v => v.textContent = '0');
-                document.querySelectorAll('.perc-val').forEach(v => v.textContent = '0%');
-                document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
+                document.querySelectorAll('.pts-val, .perc-val').forEach(v => v.textContent = '0');
             }
         });
-
         socket.on('prediction-progress', (outcomes) => {
             if (!Array.isArray(outcomes)) return;
-            
-            const totalPoints = outcomes.reduce((sum, o) => sum + o.channelPoints, 0);
-            
-            outcomes.forEach(outcome => {
-                const matchNum = outcome.title.match(/\d+/);
-                if (matchNum) {
-                    const botNum = matchNum[0];
-                    const row = document.getElementById(`bot-row-${botNum}`);
-                    if (row) {
-                        const percent = totalPoints > 0 ? Math.round((outcome.channelPoints / totalPoints) * 100) : 0;
-                        row.querySelector('.progress-bar').style.width = percent + '%';
-                        row.querySelector('.perc-val').textContent = percent + '%';
-                        row.querySelector('.pts-val').textContent = outcome.channelPoints.toLocaleString();
-                    }
+            const total = outcomes.reduce((sum, o) => sum + o.channelPoints, 0);
+            outcomes.forEach(o => {
+                const botNum = o.title.match(/\d+/)?.[0];
+                const row = document.getElementById(`bot-row-${botNum}`);
+                if (row) {
+                    const p = total > 0 ? Math.round((o.channelPoints / total) * 100) : 0;
+                    row.querySelector('.progress-bar').style.width = p + '%';
+                    row.querySelector('.perc-val').textContent = p + '%';
+                    row.querySelector('.pts-val').textContent = o.channelPoints.toLocaleString();
                 }
             });
         });
-
         socket.on('bonus-update', (data) => {
             if (data.isSuccess) {
-                const alertBox = document.getElementById('bonus-alert');
-                alertBox.textContent = `✨ ${data.user} : ${data.type} sur Bot ${data.input}`;
-                setTimeout(() => { alertBox.textContent = ''; }, 4000);
+                const box = document.getElementById('bonus-alert');
+                box.textContent = `✨ ${data.user} : ${data.type} sur Ordi ${data.input}`;
+                setTimeout(() => box.textContent = '', 4000);
             }
         });
     </script>
