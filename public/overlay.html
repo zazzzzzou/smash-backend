@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Smash Overlay</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* Fond transparent pour Streamlabs */
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: transparent;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        #overlay-container {
+            width: 400px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 5px solid #007bff;
+        }
+
+        .bot-row {
+            margin-bottom: 15px;
+        }
+
+        .bot-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .level-badge {
+            background: #ffc107;
+            color: black;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            text-shadow: none;
+        }
+
+        /* Barre de progression des votes */
+        .progress-bg {
+            width: 100%;
+            height: 12px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #007bff, #00d4ff);
+            transition: width 0.5s ease-in-out;
+        }
+
+        .vote-count {
+            font-size: 0.8em;
+            opacity: 0.8;
+            margin-top: 2px;
+            display: block;
+        }
+
+        #bonus-alert {
+            margin-top: 15px;
+            font-style: italic;
+            color: #51cf66;
+            font-size: 0.9em;
+            height: 1.2em;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="overlay-container">
+        <div id="bots-container">
+            <div id="bot-0" class="bot-row">
+                <div class="bot-header">
+                    <span class="bot-name">Bot 1</span>
+                    <span class="level-badge">LVL <span class="lvl-val">8</span></span>
+                </div>
+                <div class="progress-bg"><div class="progress-bar"></div></div>
+                <span class="vote-count">0 votes</span>
+            </div>
+            </div>
+        <div id="bonus-alert"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        // Initialisation des 4 lignes si elles n'existent pas
+        const botsContainer = document.getElementById('bots-container');
+        botsContainer.innerHTML = '';
+        for(let i=0; i<4; i++) {
+            botsContainer.innerHTML += `
+                <div id="bot-${i}" class="bot-row">
+                    <div class="bot-header">
+                        <span class="bot-name">Bot ${i+1}</span>
+                        <span class="level-badge">LVL <span class="lvl-val">8</span></span>
+                    </div>
+                    <div class="progress-bg"><div class="progress-bar"></div></div>
+                    <span class="vote-count">0% (0)</span>
+                </div>`;
+        }
+
+        socket.on('game-status', (data) => {
+            if (data.bonusResults && data.bonusResults.botLevels) {
+                data.bonusResults.botLevels.forEach((lvl, i) => {
+                    document.querySelector(`#bot-${i} .lvl-val`).textContent = lvl;
+                });
+            }
+        });
+
+        // Mise à jour de la progression des votes
+        socket.on('prediction-progress', (data) => {
+            if (data.outcomes) {
+                const totalPoints = data.outcomes.reduce((sum, o) => sum + o.channelPoints, 0);
+                
+                data.outcomes.forEach((outcome, index) => {
+                    // On essaie de trouver le bot correspondant (1-4) dans le titre
+                    const match = outcome.title.match(/\d+/);
+                    if (match) {
+                        const botIdx = parseInt(match[0]) - 1;
+                        if (botIdx >= 0 && botIdx < 4) {
+                            const percent = totalPoints > 0 ? Math.round((outcome.channelPoints / totalPoints) * 100) : 0;
+                            const row = document.getElementById(`bot-${botIdx}`);
+                            row.querySelector('.progress-bar').style.width = percent + '%';
+                            row.querySelector('.vote-count').textContent = `${percent}% (${outcome.users} parieurs)`;
+                        }
+                    }
+                });
+            }
+        });
+
+        // Affichage des alertes bonus
+        socket.on('bonus-update', (data) => {
+            if (data.isSuccess) {
+                const alertBox = document.getElementById('bonus-alert');
+                alertBox.textContent = `✨ ${data.user} : ${data.type} sur Bot ${data.input}`;
+                
+                // Efface l'alerte après 5 secondes
+                setTimeout(() => { alertBox.textContent = ''; }, 5000);
+            }
+        });
+    </script>
+</body>
+</html>

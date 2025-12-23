@@ -245,7 +245,17 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         }
     });
 
-    listener.onChannelPredictionProgress(channelUserId, (event) => {});
+    listener.onChannelPredictionProgress(channelUserId, (event) => {
+        // On envoie les données brutes des choix (outcomes) à l'overlay
+        io.emit('prediction-progress', {
+            outcomes: event.outcomes.map(o => ({
+                title: o.title,
+                channelPoints: o.channelPoints,
+                users: o.users,
+                topPredictors: o.topPredictors
+            }))
+        });
+    });
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
         if (event.id === currentPredictionId && currentMatch) {
