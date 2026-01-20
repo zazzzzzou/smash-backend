@@ -94,6 +94,7 @@ function setupAdminRoutes(app, apiClient, io) {
     const closeBonusPhase = async () => {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
+            currentMatch.markModified('bonusResults'); // Sécurité
             currentMatch = await currentMatch.save(); 
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
             io.emit('game-status', currentMatch);
@@ -104,14 +105,13 @@ function setupAdminRoutes(app, apiClient, io) {
         const last = await Match.findOne({}).sort({ matchId: -1 });
         currentMatchId = last ? last.matchId + 1 : 1;
         
-        // Initialisation avec botCounters à 0
         currentMatch = new Match({
             matchId: currentMatchId, 
             status: 'AWAITING_PREDICTION',
             bonusResults: { 
                 botLevels: [8,8,8,8], 
-                botCounters: [0,0,0,0], // NOUVEAU: Compteurs -10 à +10
-                levelUpUsedForBot: [false,false,false,false], // Legacy (gardé pour compatibilité DB)
+                botCounters: [0,0,0,0], 
+                levelUpUsedForBot: [false,false,false,false], 
                 levelDownUsedForBot: [false,false,false,false], 
                 charSelectUsedForBot: [false,false,false,false], 
                 log: [] 
@@ -173,17 +173,15 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         let success = false;
         let logMsg = "";
 
-        // Logique LEVEL UP / DOWN (Spammable avec jauge)
+        // Logique LEVEL UP / DOWN
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const idx = parseInt(input) - 1;
             if (idx >= 0 && idx <= 3) {
-                // Initialisation safe si le tableau n'existe pas encore
                 if (!currentMatch.bonusResults.botCounters) currentMatch.bonusResults.botCounters = [0,0,0,0];
                 
                 let currentVal = currentMatch.bonusResults.botCounters[idx];
                 const isUp = (rewardKey === 'LEVEL_UP');
 
-                // Vérification des bornes -10 / +10
                 if (isUp && currentVal < 10) {
                     currentMatch.bonusResults.botCounters[idx]++;
                     success = true;
@@ -195,22 +193,19 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 }
 
                 if (success) {
-                    // Calcul du niveau réel (7, 8, 9) basé sur la jauge
                     const newVal = currentMatch.bonusResults.botCounters[idx];
                     let newLevel = 8;
                     if (newVal <= -7) newLevel = 7;
                     else if (newVal >= 7) newLevel = 9;
                     
-                    // Mise à jour du level affiché dans le tableau
                     currentMatch.bonusResults.botLevels[idx] = newLevel;
                 }
             } else {
                 logMsg = "Ordi 1-4 requis.";
             }
         } 
-        // Logique CHOIX PERSO (Validation stricte)
+        // Logique CHOIX PERSO
         else if (rewardKey === 'CHOIX_PERSO') {
-            // Regex: Commence par chiffre 1-4, suivi d'un espace, suivi d'au moins un caractère non-espace
             const regex = /^([1-4])\s+\S+/;
             const match = input.match(regex);
 
@@ -233,13 +228,11 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             await User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true });
             await (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
             
-            // On envoie le compteur actuel pour l'overlay
-            io.emit('bonus-update', { 
-                type: rewardKey, 
-                user: event.userDisplayName, 
-                input, 
-                isSuccess: true 
-            });
+            // ⭐️ FIX CRITIQUE: Force Mongoose à détecter les changements dans les tableaux
+            currentMatch.markModified('bonusResults');
+            await currentMatch.save();
+
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
             io.emit('game-status', currentMatch);
         } else {
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
@@ -251,7 +244,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 message: logMsg + (isRefunded ? " (Remboursé)" : "") 
             });
         }
-        await currentMatch.save();
     });
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
