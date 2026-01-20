@@ -161,11 +161,24 @@
                 });
             }
 
-            // Mise à jour des Curseurs
+            // Mise à jour des Curseurs avec OFFSET (Centrage dans la case)
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
+                    
+                    let effectiveVal = val;
+
+                    // Si valeur positive (ex: 5), on veut être entre 4 et 5 (donc 4.5)
+                    if (val > 0) {
+                        effectiveVal = val - 0.5;
+                    } 
+                    // Si valeur négative (ex: -1), on veut être entre 0 et -1 (donc -0.5)
+                    else if (val < 0) {
+                        effectiveVal = val + 0.5;
+                    }
+                    // Si 0, on reste à 0 (50%)
+
                     // Calcul de la position (Mapping -10..+10 -> 0%..100%)
-                    let percent = (val + 10) / 20 * 100;
+                    let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     
                     const cursor = document.getElementById(`cursor-${i+1}`);
