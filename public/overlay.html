@@ -10,6 +10,7 @@
         
         #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
         
+        /* Liste des Ordis */
         .bot-row { 
             margin-bottom: 20px; 
             position: relative; 
@@ -26,11 +27,9 @@
             padding: 2px 10px; border: 2px solid var(--smash-yellow); transform: skew(-10deg); box-shadow: 2px 2px 0px #000; 
         }
 
-        /* Étoile de victoire */
         .winner-star { display: none; font-size: 1.2em; margin-right: 5px; animation: star-jump 0.8s infinite ease-in-out; }
         @keyframes star-jump { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 
-        /* RÉTABLISSEMENT DE L'ENCADRÉ VAINQUEUR */
         .is-winner { 
             border-color: var(--smash-yellow) !important; 
             background: rgba(255, 215, 0, 0.15); 
@@ -45,15 +44,101 @@
         .steak-count { color: #51cf66; font-weight: bold; }
 
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
+
+        /* ⭐️ NOUVEAU: BARRE DE PROGRESSION LEVEL (TUG OF WAR) ⭐️ */
+        #gauge-wrapper {
+            margin-top: 25px;
+            position: relative;
+            padding-top: 35px; /* Espace pour les curseurs */
+        }
+        
+        /* Fond coloré : -10..-7 (Orange), -6..+6 (Gris), +7..+10 (Vert) */
+        /* Total Range = 20. 
+           Orange = 3 unités (15%). 
+           Gris = 14 unités (70%). 
+           Vert = 3 unités (15%). 
+        */
+        .gauge-bar {
+            width: 100%;
+            height: 15px;
+            border: 2px solid white;
+            background: linear-gradient(90deg, 
+                #e67e22 0%, #e67e22 15%, 
+                #7f8c8d 15%, #7f8c8d 85%, 
+                #27ae60 85%, #27ae60 100%
+            );
+            border-radius: 4px;
+            position: relative;
+        }
+
+        /* Indicateur de milieu (0) */
+        .gauge-center-marker {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: rgba(255,255,255,0.7);
+            transform: translateX(-50%);
+        }
+
+        /* Curseurs Triangulaires */
+        .gauge-cursor {
+            position: absolute;
+            width: 0; 
+            height: 0; 
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 12px solid; /* Pointe vers le bas */
+            transform: translateX(-50%); /* Centrer sur le point */
+            transition: left 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+            z-index: 10;
+        }
+
+        .cursor-label {
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 black;
+        }
+
+        /* Couleurs et positions verticales pour éviter le chevauchement */
+        #cursor-1 { border-top-color: #FF4500; top: -10px; }
+        #cursor-2 { border-top-color: #3498db; top: 0px; }
+        #cursor-3 { border-top-color: #f1c40f; top: 10px; }
+        #cursor-4 { border-top-color: #9b59b6; top: 20px; }
     </style>
 </head>
 <body>
     <div id="overlay-container">
         <div id="bots-container"></div>
+        
+        <div id="gauge-wrapper">
+            <div id="cursor-1" class="gauge-cursor" style="left: 50%"><span class="cursor-label">1</span></div>
+            <div id="cursor-2" class="gauge-cursor" style="left: 50%"><span class="cursor-label">2</span></div>
+            <div id="cursor-3" class="gauge-cursor" style="left: 50%"><span class="cursor-label">3</span></div>
+            <div id="cursor-4" class="gauge-cursor" style="left: 50%"><span class="cursor-label">4</span></div>
+            
+            <div class="gauge-bar">
+                <div class="gauge-center-marker"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.7em; margin-top:2px; color:#aaa;">
+                <span>LVL 7</span>
+                <span>LVL 8</span>
+                <span>LVL 9</span>
+            </div>
+        </div>
+
         <div id="bonus-alert"></div>
     </div>
+    
     <script>
         const socket = io();
+        
         function initRows() {
             const container = document.getElementById('bots-container');
             container.innerHTML = '';
@@ -75,7 +160,7 @@
         initRows();
 
         socket.on('game-status', (match) => {
-            // Mise à jour des Niveaux
+            // 1. Mise à jour des Niveaux (Tableau Principal)
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -83,18 +168,39 @@
                 });
             }
 
-            // Gestion de l'encadré du Vainqueur
+            // 2. Gestion de l'encadré du Vainqueur
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
             if (match.status === 'CLOSED' && match.winnerBot) {
                 const winnerRow = document.getElementById(`bot-row-${match.winnerBot}`);
                 if (winnerRow) winnerRow.classList.add('is-winner');
             }
 
-            // Reset visuel si nouveau match
+            // 3. Reset visuel si nouveau match
             if (match.status === 'AWAITING_PREDICTION') {
                 document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
                 document.querySelectorAll('.pts-val, .perc-val').forEach(v => v.textContent = '0');
                 document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
+                
+                // Reset curseurs au centre
+                for(let i=1; i<=4; i++) {
+                    document.getElementById(`cursor-${i}`).style.left = '50%';
+                }
+            }
+
+            // ⭐️ 4. MISE À JOUR DES CURSEURS DE JAUGE ⭐️
+            if (match.bonusResults?.botCounters) {
+                match.bonusResults.botCounters.forEach((val, i) => {
+                    // Range total = 20 (-10 à +10).
+                    // Valeur normalisée (0 à 20) = val + 10
+                    // Pourcentage = (val + 10) / 20 * 100
+                    let percentage = ((val + 10) / 20) * 100;
+                    
+                    // Bornes de sécurité visuelles (0% à 100%)
+                    percentage = Math.max(0, Math.min(100, percentage));
+                    
+                    const cursor = document.getElementById(`cursor-${i+1}`);
+                    if (cursor) cursor.style.left = `${percentage}%`;
+                });
             }
         });
 
