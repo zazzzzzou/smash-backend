@@ -51,10 +51,11 @@
             position: relative;
             width: 100%;
             height: 40px;
+            /* CORRECTION: 20% pour couvrir 4 cases (-10,-9,-8,-7) et 80% pour (7,8,9,10) */
             background: linear-gradient(to right, 
-                #e74c3c 0%, #e74c3c 15%, 
-                #bdc3c7 15%, #bdc3c7 85%, 
-                #27ae60 85%, #27ae60 100%
+                #e74c3c 0%, #e74c3c 20%, 
+                #bdc3c7 20%, #bdc3c7 80%, 
+                #27ae60 80%, #27ae60 100%
             );
             border: 3px solid white;
             box-shadow: inset 0 0 10px #000;
@@ -136,7 +137,9 @@
                 tick.style.left = (i / 20 * 100) + '%';
                 tick.style.borderLeft = "1px dotted rgba(255,255,255,0.4)"; 
                 tick.style.background = "transparent";
-                if(i === 3 || i === 17) {
+                
+                // CORRECTION: Traits épais à 4 (20%) et 16 (80%) pour délimiter 4 cases
+                if(i === 4 || i === 16) {
                     tick.style.borderLeft = "2px solid white";
                     tick.style.height = "100%";
                     tick.style.opacity = "1";
@@ -164,20 +167,11 @@
             // Mise à jour des Curseurs avec OFFSET (Centrage dans la case)
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
-                    
                     let effectiveVal = val;
-
-                    // Si valeur positive (ex: 5), on veut être entre 4 et 5 (donc 4.5)
-                    if (val > 0) {
-                        effectiveVal = val - 0.5;
-                    } 
-                    // Si valeur négative (ex: -1), on veut être entre 0 et -1 (donc -0.5)
-                    else if (val < 0) {
-                        effectiveVal = val + 0.5;
-                    }
+                    if (val > 0) effectiveVal = val - 0.5;
+                    else if (val < 0) effectiveVal = val + 0.5;
                     // Si 0, on reste à 0 (50%)
 
-                    // Calcul de la position (Mapping -10..+10 -> 0%..100%)
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     
