@@ -8,9 +8,15 @@
         :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: rgba(0, 0, 0, 0.85); }
         body { margin: 0; padding: 20px; background-color: transparent; font-family: 'Arial Black', sans-serif; color: white; overflow: hidden; text-transform: uppercase; }
         
-        #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
+        #overlay-container { 
+            width: 380px; 
+            background: var(--bg-dark); 
+            padding: 20px; 
+            border: 4px solid var(--smash-yellow); 
+            box-shadow: 0 0 15px #000; 
+        }
         
-        /* Liste des Ordis */
+        /* --- LISTE DES ORDIS --- */
         .bot-row { 
             margin-bottom: 20px; 
             position: relative; 
@@ -45,97 +51,96 @@
 
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
 
-        /* ⭐️ NOUVEAU: BARRE DE PROGRESSION LEVEL (TUG OF WAR) ⭐️ */
-        #gauge-wrapper {
+        /* --- BARRE DE PROGRESSION LEVEL (NOUVEAU) --- */
+        #gauge-container {
             margin-top: 25px;
+            border-top: 2px solid #555;
+            padding-top: 15px;
             position: relative;
-            padding-top: 35px; /* Espace pour les curseurs */
         }
-        
-        /* Fond coloré : -10..-7 (Orange), -6..+6 (Gris), +7..+10 (Vert) */
-        /* Total Range = 20. 
-           Orange = 3 unités (15%). 
-           Gris = 14 unités (70%). 
-           Vert = 3 unités (15%). 
-        */
-        .gauge-bar {
+
+        .gauge-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: #ccc;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .gauge-track {
+            position: relative;
+            height: 30px;
             width: 100%;
-            height: 15px;
-            border: 2px solid white;
-            background: linear-gradient(90deg, 
-                #e67e22 0%, #e67e22 15%, 
-                #7f8c8d 15%, #7f8c8d 85%, 
-                #27ae60 85%, #27ae60 100%
-            );
-            border-radius: 4px;
-            position: relative;
+            background: #000;
+            border: 3px solid #fff;
+            display: flex;
         }
 
-        /* Indicateur de milieu (0) */
-        .gauge-center-marker {
-            position: absolute;
-            left: 50%;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: rgba(255,255,255,0.7);
-            transform: translateX(-50%);
-        }
+        /* Zones de couleur */
+        .zone-orange { width: 15%; background: #e67e22; border-right: 1px solid #000; } /* -10 à -7 */
+        .zone-grey { width: 70%; background: #95a5a6; border-right: 1px solid #000; }   /* -6 à +6 */
+        .zone-green { width: 15%; background: #27ae60; }                                /* +7 à +10 */
 
-        /* Curseurs Triangulaires */
-        .gauge-cursor {
+        /* Curseurs */
+        .cursor {
             position: absolute;
+            top: -8px; /* Dépasse légèrement en haut */
             width: 0; 
             height: 0; 
-            border-left: 8px solid transparent;
-            border-right: 8px solid transparent;
-            border-top: 12px solid; /* Pointe vers le bas */
-            transform: translateX(-50%); /* Centrer sur le point */
-            transition: left 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 15px solid; /* Pointe vers le bas */
+            transform: translateX(-50%); /* Centrer sur la valeur */
+            transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             z-index: 10;
+            filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8));
         }
 
-        .cursor-label {
+        /* Couleurs curseurs avec transparence pour chevauchement */
+        #cursor-0 { border-top-color: rgba(231, 76, 60, 0.9); top: -12px; z-index: 13; } /* Rouge P1 */
+        #cursor-1 { border-top-color: rgba(52, 152, 219, 0.9); top: -12px; z-index: 12; } /* Bleu P2 */
+        #cursor-2 { border-top-color: rgba(241, 196, 15, 0.9); top: 25px; border-top: 0; border-bottom: 15px solid rgba(241, 196, 15, 0.9); z-index: 11; } /* Jaune P3 (Pointe vers le haut) */
+        #cursor-3 { border-top-color: rgba(46, 204, 113, 0.9); top: 25px; border-top: 0; border-bottom: 15px solid rgba(46, 204, 113, 0.9); z-index: 10; } /* Vert P4 (Pointe vers le haut) */
+
+        /* Numéros dans les curseurs (Optionnel mais utile) */
+        .cursor span {
             position: absolute;
-            top: -18px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 10px;
+            top: -25px;
+            left: -5px;
             color: white;
-            font-weight: bold;
-            text-shadow: 1px 1px 0 black;
+            font-size: 10px;
+            text-shadow: 1px 1px 0 #000;
         }
+        #cursor-2 span, #cursor-3 span { top: 15px; } /* Ajustement pour ceux du bas */
 
-        /* Couleurs et positions verticales pour éviter le chevauchement */
-        #cursor-1 { border-top-color: #FF4500; top: -10px; }
-        #cursor-2 { border-top-color: #3498db; top: 0px; }
-        #cursor-3 { border-top-color: #f1c40f; top: 10px; }
-        #cursor-4 { border-top-color: #9b59b6; top: 20px; }
     </style>
 </head>
 <body>
     <div id="overlay-container">
         <div id="bots-container"></div>
         
-        <div id="gauge-wrapper">
-            <div id="cursor-1" class="gauge-cursor" style="left: 50%"><span class="cursor-label">1</span></div>
-            <div id="cursor-2" class="gauge-cursor" style="left: 50%"><span class="cursor-label">2</span></div>
-            <div id="cursor-3" class="gauge-cursor" style="left: 50%"><span class="cursor-label">3</span></div>
-            <div id="cursor-4" class="gauge-cursor" style="left: 50%"><span class="cursor-label">4</span></div>
-            
-            <div class="gauge-bar">
-                <div class="gauge-center-marker"></div>
+        <div id="gauge-container">
+            <div class="gauge-labels">
+                <span style="color:#e67e22">LVL 7</span>
+                <span style="color:#95a5a6">LVL 8</span>
+                <span style="color:#27ae60">LVL 9</span>
             </div>
-            <div style="display:flex; justify-content:space-between; font-size:0.7em; margin-top:2px; color:#aaa;">
-                <span>LVL 7</span>
-                <span>LVL 8</span>
-                <span>LVL 9</span>
+            <div class="gauge-track">
+                <div class="zone-orange"></div>
+                <div class="zone-grey"></div>
+                <div class="zone-green"></div>
+                
+                <div id="cursor-0" class="cursor"><span>1</span></div>
+                <div id="cursor-1" class="cursor"><span>2</span></div>
+                <div id="cursor-2" class="cursor"><span>3</span></div>
+                <div id="cursor-3" class="cursor"><span>4</span></div>
             </div>
         </div>
 
         <div id="bonus-alert"></div>
     </div>
-    
+
     <script>
         const socket = io();
         
@@ -160,7 +165,8 @@
         initRows();
 
         socket.on('game-status', (match) => {
-            // 1. Mise à jour des Niveaux (Tableau Principal)
+            // 1. Mise à jour des Niveaux (Seulement à la fin du bonus pour éviter la confusion)
+            // L'admin et la BDD ont la vérité, mais l'affichage "LVL" ne change qu'à la clôture du bonus.
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -168,39 +174,37 @@
                 });
             }
 
-            // 2. Gestion de l'encadré du Vainqueur
+            // 2. Animation des curseurs de la jauge (Temps réel)
+            if (match.bonusResults?.levelCounters) {
+                match.bonusResults.levelCounters.forEach((val, i) => {
+                    const cursor = document.getElementById(`cursor-${i}`);
+                    if (cursor) {
+                        // Math: -10 à 10. 
+                        // -10 = 0%, 0 = 50%, 10 = 100%.
+                        // Formule : ((val + 10) / 20) * 100
+                        const percent = ((val + 10) / 20) * 100;
+                        cursor.style.left = `${percent}%`;
+                    }
+                });
+            }
+
+            // 3. Gestion Vainqueur
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
             if (match.status === 'CLOSED' && match.winnerBot) {
                 const winnerRow = document.getElementById(`bot-row-${match.winnerBot}`);
                 if (winnerRow) winnerRow.classList.add('is-winner');
             }
 
-            // 3. Reset visuel si nouveau match
+            // 4. Reset Visuel (Nouveau Match)
             if (match.status === 'AWAITING_PREDICTION') {
                 document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
                 document.querySelectorAll('.pts-val, .perc-val').forEach(v => v.textContent = '0');
-                document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
                 
                 // Reset curseurs au centre
-                for(let i=1; i<=4; i++) {
-                    document.getElementById(`cursor-${i}`).style.left = '50%';
+                for(let i=0; i<4; i++) {
+                    const cursor = document.getElementById(`cursor-${i}`);
+                    if(cursor) cursor.style.left = '50%';
                 }
-            }
-
-            // ⭐️ 4. MISE À JOUR DES CURSEURS DE JAUGE ⭐️
-            if (match.bonusResults?.botCounters) {
-                match.bonusResults.botCounters.forEach((val, i) => {
-                    // Range total = 20 (-10 à +10).
-                    // Valeur normalisée (0 à 20) = val + 10
-                    // Pourcentage = (val + 10) / 20 * 100
-                    let percentage = ((val + 10) / 20) * 100;
-                    
-                    // Bornes de sécurité visuelles (0% à 100%)
-                    percentage = Math.max(0, Math.min(100, percentage));
-                    
-                    const cursor = document.getElementById(`cursor-${i+1}`);
-                    if (cursor) cursor.style.left = `${percentage}%`;
-                });
             }
         });
 
