@@ -33,6 +33,10 @@ let currentMatchId = 0;
 let currentMatch = null; 
 let currentPredictionId = null; 
 let lastPredictionData = null; 
+
+// ⭐️ VARIABLE TEMPS RÉEL (Plus rapide que la DB)
+let liveBotCounters = [0, 0, 0, 0]; 
+
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
 
@@ -89,15 +93,31 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
     } catch (e) { return false; }
 }
 
+// --- Helper pour envoyer le statut avec les compteurs live ---
+function emitGameStatus(io, match) {
+    if (!match) return;
+    // On crée une copie propre de l'objet match
+    const statusData = match.toObject ? match.toObject() : { ...match };
+    
+    // On écrase les compteurs de la DB avec nos compteurs live (Source de vérité)
+    if (!statusData.bonusResults) statusData.bonusResults = {};
+    statusData.bonusResults.botCounters = liveBotCounters;
+    
+    io.emit('game-status', statusData);
+}
+
 // --- Routes Admin ---
 function setupAdminRoutes(app, apiClient, io) {
     const closeBonusPhase = async () => {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
-            currentMatch.markModified('bonusResults'); // Sécurité
+            // Sauvegarde finale des compteurs live dans la DB
+            currentMatch.bonusResults.botCounters = liveBotCounters;
+            currentMatch.markModified('bonusResults');
             currentMatch = await currentMatch.save(); 
+            
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
-            io.emit('game-status', currentMatch);
+            emitGameStatus(io, currentMatch);
         }
     };
 
@@ -105,12 +125,15 @@ function setupAdminRoutes(app, apiClient, io) {
         const last = await Match.findOne({}).sort({ matchId: -1 });
         currentMatchId = last ? last.matchId + 1 : 1;
         
+        // Reset des compteurs live
+        liveBotCounters = [0, 0, 0, 0];
+
         currentMatch = new Match({
             matchId: currentMatchId, 
             status: 'AWAITING_PREDICTION',
             bonusResults: { 
                 botLevels: [8,8,8,8], 
-                botCounters: [0,0,0,0], 
+                botCounters: liveBotCounters, 
                 levelUpUsedForBot: [false,false,false,false], 
                 levelDownUsedForBot: [false,false,false,false], 
                 charSelectUsedForBot: [false,false,false,false], 
@@ -119,7 +142,7 @@ function setupAdminRoutes(app, apiClient, io) {
         });
         lastPredictionData = null; 
         await currentMatch.save();
-        io.emit('game-status', currentMatch);
+        emitGameStatus(io, currentMatch);
         res.send({ status: 'OK' });
     });
 
@@ -131,7 +154,7 @@ function setupAdminRoutes(app, apiClient, io) {
         for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
         if (global.bonusTimeout) clearTimeout(global.bonusTimeout);
         global.bonusTimeout = setTimeout(closeBonusPhase, duration * 1000);
-        io.emit('game-status', currentMatch);
+        emitGameStatus(io, currentMatch);
         res.send({ status: 'OK' });
     });
 
@@ -141,12 +164,11 @@ function setupAdminRoutes(app, apiClient, io) {
         if (currentMatch) {
             currentMatch.status = 'CLOSED';
             await currentMatch.save();
-            io.emit('game-status', currentMatch);
+            emitGameStatus(io, currentMatch);
         }
         res.send({ status: 'OK' });
     });
 
-    // Routes API Classement
     app.get('/api/classement/points', async (req, res) => {
         try { res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id')); } 
         catch (e) { res.status(500).send(e.message); }
@@ -173,76 +195,70 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         let success = false;
         let logMsg = "";
 
-        // Logique LEVEL UP / DOWN
+        // Logique LEVEL UP / DOWN (Mémoire Live)
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const idx = parseInt(input) - 1;
             if (idx >= 0 && idx <= 3) {
-                if (!currentMatch.bonusResults.botCounters) currentMatch.bonusResults.botCounters = [0,0,0,0];
                 
-                let currentVal = currentMatch.bonusResults.botCounters[idx];
+                let currentVal = liveBotCounters[idx]; // Lecture directe variable
                 const isUp = (rewardKey === 'LEVEL_UP');
 
                 if (isUp && currentVal < 10) {
-                    currentMatch.bonusResults.botCounters[idx]++;
+                    liveBotCounters[idx]++; // Modif immédiate
                     success = true;
                 } else if (!isUp && currentVal > -10) {
-                    currentMatch.bonusResults.botCounters[idx]--;
+                    liveBotCounters[idx]--; // Modif immédiate
                     success = true;
                 } else {
                     logMsg = isUp ? "Max (+10) atteint" : "Min (-10) atteint";
                 }
 
                 if (success) {
-                    const newVal = currentMatch.bonusResults.botCounters[idx];
+                    // Calcul immédiat du niveau pour l'affichage
+                    const newVal = liveBotCounters[idx];
                     let newLevel = 8;
                     if (newVal <= -7) newLevel = 7;
                     else if (newVal >= 7) newLevel = 9;
                     
+                    // Mise à jour de l'objet match en mémoire
                     currentMatch.bonusResults.botLevels[idx] = newLevel;
                 }
             } else {
                 logMsg = "Ordi 1-4 requis.";
             }
         } 
-        // Logique CHOIX PERSO
+        // Logique CHOIX PERSO (Validation stricte)
         else if (rewardKey === 'CHOIX_PERSO') {
             const regex = /^([1-4])\s+\S+/;
             const match = input.match(regex);
-
             if (match) {
                 const botIdx = parseInt(match[1]) - 1;
                 if (!currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
                     currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
                     success = true;
-                } else {
-                    logMsg = "Déjà choisi pour cet Ordi.";
-                }
-            } else {
-                logMsg = "Format invalide (Ex: '2 Pit').";
-            }
+                } else logMsg = "Déjà choisi.";
+            } else logMsg = "Format invalide.";
         }
 
         if (success) {
-            currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
+            // 1. Envoi SOCKET IMMÉDIAT (Priorité absolue)
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
+            emitGameStatus(io, currentMatch); // Envoie l'état avec liveBotCounters à jour
+
+            // 2. Traitement DB (En arrière-plan)
             const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
-            await User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true });
-            await (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
+            User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true }).exec();
+            (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
+            currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
             
-            // ⭐️ FIX CRITIQUE: Force Mongoose à détecter les changements dans les tableaux
+            // On synchronise la DB de temps en temps ou à la fin, mais on update l'objet pour la forme
+            currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             await currentMatch.save();
 
-            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
-            io.emit('game-status', currentMatch);
         } else {
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
-            io.emit('bonus-update', { 
-                type: rewardKey, 
-                user: event.userDisplayName, 
-                input: input || "N/A", 
-                isSuccess: false, 
-                message: logMsg + (isRefunded ? " (Remboursé)" : "") 
-            });
+            io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
         }
     });
 
@@ -251,7 +267,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             currentMatch.twitchPredictionId = event.id;
             currentMatch.status = 'BETTING';
             await currentMatch.save();
-            io.emit('game-status', currentMatch);
+            emitGameStatus(io, currentMatch);
         }
     });
 
@@ -277,7 +293,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 }
                 currentMatch.status = 'CLOSED';
                 await currentMatch.save();
-                io.emit('game-status', currentMatch);
+                emitGameStatus(io, currentMatch);
             } catch (e) { console.error("Erreur clôture:", e.message); }
         }
     });
@@ -288,7 +304,15 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 async function main() {
     await connectDB();
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
-    if (lastMatch) { currentMatch = lastMatch; currentMatchId = lastMatch.matchId; currentPredictionId = lastMatch.twitchPredictionId; }
+    if (lastMatch) { 
+        currentMatch = lastMatch; 
+        currentMatchId = lastMatch.matchId; 
+        currentPredictionId = lastMatch.twitchPredictionId;
+        // ⭐️ REPRISE SUR CRASH : On recharge la mémoire depuis la DB
+        if(currentMatch.bonusResults && currentMatch.bonusResults.botCounters) {
+            liveBotCounters = currentMatch.bonusResults.botCounters;
+        }
+    }
     
     const app = express();
     const httpServer = createServer(app);
@@ -303,7 +327,7 @@ async function main() {
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
     
     io.on('connection', (socket) => {
-        if (currentMatch) socket.emit('game-status', currentMatch);
+        if (currentMatch) emitGameStatus(socket, currentMatch);
         if (lastPredictionData) socket.emit('prediction-progress', lastPredictionData);
     });
 

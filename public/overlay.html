@@ -13,13 +13,13 @@
             display: flex;
             flex-direction: row;
             align-items: flex-start;
-            gap: 20px; /* Espace entre le tableau et la jauge */
+            gap: 20px;
         }
 
-        /* --- Tableau des Ordis (Gauche) --- */
+        /* --- Tableau des Ordis --- */
         #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
         
-        /* --- Jauge de Level (Droite) --- */
+        /* --- Jauge de Level --- */
         #gauge-container { 
             width: 380px; 
             background: var(--bg-dark); 
@@ -44,8 +44,6 @@
         .progress-bar { height: 100%; width: 0%; background: linear-gradient(to bottom, #FF4500, #FF8C00); transition: width 0.6s ease-out; }
         .stats-line { display: flex; justify-content: space-between; font-size: 0.85em; margin-top: 5px; color: var(--smash-yellow); font-style: italic; }
         .steak-count { color: #51cf66; font-weight: bold; }
-        
-        /* Bonus Alert repositionnée en dehors du flex ou en bas du tableau */
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
 
         /* --- STYLES JAUGE --- */
@@ -155,6 +153,7 @@
         initGaugeTicks();
 
         socket.on('game-status', (match) => {
+            // Mise à jour des Niveaux (LVL X)
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -162,10 +161,13 @@
                 });
             }
 
+            // Mise à jour des Curseurs
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
+                    // Calcul de la position (Mapping -10..+10 -> 0%..100%)
                     let percent = (val + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
+                    
                     const cursor = document.getElementById(`cursor-${i+1}`);
                     if(cursor) cursor.style.left = percent + '%';
                 });
