@@ -25,7 +25,12 @@
         button:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: 7px 7px 0px #000; background: var(--smash-orange); }
         button:disabled { background: #555; color: #888; cursor: not-allowed; box-shadow: none; }
         table { width: 100%; border-spacing: 10px; }
-        td { background: #222; border: 3px solid #444; padding: 20px; font-size: 2em; text-align: center; color: var(--smash-yellow); text-shadow: 2px 2px 0px black; }
+        td { background: #222; border: 3px solid #444; padding: 20px; font-size: 1.5em; text-align: center; color: var(--smash-yellow); text-shadow: 2px 2px 0px black; }
+        
+        /* Style spécifique pour le tableau des persos */
+        .char-cell { color: white; font-size: 1.2em; text-transform: none; }
+        .user-tag { color: #888; font-size: 0.8em; margin-left: 10px; font-style: italic; }
+
         #log-container { height: 250px; overflow-y: auto; background: #000; color: #00FF00; padding: 15px; font-family: 'Courier New', monospace; border: 3px solid var(--blb-blue); text-transform: none; }
         .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
         .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
@@ -33,6 +38,7 @@
 </head>
 <body>
     <h1>Panneau Admin - BLB Smash Betting</h1>
+    
     <div class="card">
         <h2>Contrôle du Match</h2>
         <p>Statut : <span id="match-status" class="status-badge CLOSED">CLOSED</span> | ID : <span id="match-id-display">-</span></p>
@@ -47,6 +53,18 @@
             <button id="btn-close-match" onclick="closeMatch()" style="background:#c0392b" disabled>Clôturer Match</button>
         </div>
     </div>
+
+    <div class="card">
+        <h2>Récapitulatif Choix Perso</h2>
+        <table>
+            <tr><th>Ordi</th><th>Personnage (Joueur)</th></tr>
+            <tr><td>Ordi 1</td><td id="char-1" class="char-cell">Aléatoire</td></tr>
+            <tr><td>Ordi 2</td><td id="char-2" class="char-cell">Aléatoire</td></tr>
+            <tr><td>Ordi 3</td><td id="char-3" class="char-cell">Aléatoire</td></tr>
+            <tr><td>Ordi 4</td><td id="char-4" class="char-cell">Aléatoire</td></tr>
+        </table>
+    </div>
+
     <div class="card">
         <h2>Niveaux des Ordis</h2>
         <table>
@@ -54,27 +72,58 @@
             <tr><td id="lvl-0">8</td><td id="lvl-1">8</td><td id="lvl-2">8</td><td id="lvl-3">8</td></tr>
         </table>
     </div>
+    
     <div class="card">
         <h2>Log d'activité</h2>
         <div id="log-container"></div>
     </div>
+    
     <script>
         const socket = io();
         const apiBaseUrl = window.location.origin;
+        
         function updateUI(data) {
             const status = data.status || 'CLOSED';
             const badge = document.getElementById('match-status');
             badge.textContent = status;
             badge.className = 'status-badge ' + status;
             document.getElementById('match-id-display').textContent = data.matchId || '-';
+            
             document.getElementById('btn-start-match').disabled = (status !== 'CLOSED');
             document.getElementById('btn-start-bonus').disabled = (status !== 'BETTING');
             document.getElementById('btn-stop-bonus').disabled = (status !== 'BONUS_ACTIVE');
             document.getElementById('btn-close-match').disabled = (status === 'CLOSED');
+            
             if (data.bonusResults && data.bonusResults.botLevels) {
                 data.bonusResults.botLevels.forEach((lvl, i) => { document.getElementById(`lvl-${i}`).textContent = lvl; });
             }
+
+            // GESTION DU TABLEAU CHOIX PERSO
+            // 1. Reset visuel
+            for(let i=1; i<=4; i++) {
+                document.getElementById(`char-${i}`).innerHTML = 'Aléatoire';
+                document.getElementById(`char-${i}`).style.color = '#888';
+            }
+
+            // 2. Scan des logs pour trouver les choix
+            if (data.bonusResults && data.bonusResults.log) {
+                data.bonusResults.log.forEach(entry => {
+                    if (entry.reward === 'CHOIX_PERSO') {
+                        // input format: "2 Mario" -> on extrait le numéro et le nom
+                        const parts = entry.input.split(' ');
+                        const botNum = parseInt(parts[0]);
+                        const charName = parts.slice(1).join(' '); // Le reste est le nom
+
+                        if (botNum >= 1 && botNum <= 4) {
+                            const cell = document.getElementById(`char-${botNum}`);
+                            cell.innerHTML = `${charName} <span class="user-tag">(${entry.user})</span>`;
+                            cell.style.color = 'white';
+                        }
+                    }
+                });
+            }
         }
+        
         function addLog(msg, isSuccess = true) {
             const container = document.getElementById('log-container');
             const div = document.createElement('div');
@@ -82,23 +131,29 @@
             div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
             container.prepend(div);
         }
+        
         async function startNewMatch() { 
-            document.getElementById('log-container').innerHTML = ''; // REFRESH LOGS
+            document.getElementById('log-container').innerHTML = ''; 
             addLog("Nouveau match initialisé. Logs vidés.");
             fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' }); 
         }
+        
         async function startBonusPhase() {
             const d = document.getElementById('bonus-duration').value;
             fetch(`${apiBaseUrl}/admin/start-bonus`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ duration: parseInt(d) }) });
         }
+        
         async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
+        
         async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
+        
         socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {
             const type = data.type || "Bonus";
             const input = data.input || "N/A";
             addLog(`${data.isSuccess ? '✨ SUCCÈS' : '❌ ÉCHEC'}: ${data.user} -> ${type} (Ordi ${input})`, data.isSuccess);
         });
+        
         fetch(`${apiBaseUrl}/api/current-match`).then(r => r.json()).then(updateUI);
     </script>
 </body>
