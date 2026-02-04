@@ -30,19 +30,14 @@
         }
 
         /* TIMER STYLE */
-        #timer-display {
-            position: absolute;
-            top: -50px;
-            right: 0;
-            background: #000;
+        #bonus-timer {
+            text-align: center;
+            font-size: 2em;
             color: var(--smash-yellow);
-            border: 3px solid var(--smash-yellow);
-            padding: 5px 15px;
-            font-size: 1.5em;
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-            box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
-            text-shadow: 0 0 5px gold;
+            -webkit-text-stroke: 1.5px black;
+            text-shadow: 3px 3px 0 #000;
+            margin-bottom: 15px;
+            font-family: 'Arial Black', sans-serif;
         }
 
         .bot-row { margin-bottom: 20px; position: relative; padding: 5px; border: 2px solid transparent; transition: all 0.3s ease; }
@@ -80,17 +75,16 @@
 
         .gauge-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.3); }
         
-        /* Legendes de zones */
-        .gauge-legend {
+        /* Légendes de zones */
+        .legend-label {
             position: absolute;
             top: 50%;
             transform: translate(-50%, -50%);
-            color: white;
-            font-size: 0.7em;
+            font-size: 0.8em;
+            color: rgba(255,255,255,0.5);
             font-weight: bold;
-            text-shadow: 1px 1px 2px black;
+            text-shadow: 1px 1px 0 #000;
             z-index: 5;
-            pointer-events: none;
         }
 
         .cursor {
@@ -111,7 +105,6 @@
         .cursor-bottom.p3 { border-bottom-color: #f1c40f; bottom: -15px; z-index: 11; }
         .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; }
         .cursor-bottom .cursor-label { bottom: -20px; }
-
     </style>
 </head>
 <body>
@@ -123,12 +116,12 @@
         </div>
 
         <div id="gauge-container">
-            <div id="timer-display">00:00</div>
+            <div id="bonus-timer">00:00</div>
 
             <div class="gauge-track" id="gauge-track">
-                <div class="gauge-legend" style="left: 10%;">NIV 7</div>
-                <div class="gauge-legend" style="left: 50%;">NIV 8</div>
-                <div class="gauge-legend" style="left: 90%;">NIV 9</div>
+                <div class="legend-label" style="left: 10%;">Niv 7</div>
+                <div class="legend-label" style="left: 50%;">Niv 8</div>
+                <div class="legend-label" style="left: 90%;">Niv 9</div>
 
                 <div id="cursor-1" class="cursor cursor-top p1" style="left: 50%"><span class="cursor-label">1</span></div>
                 <div id="cursor-2" class="cursor cursor-top p2" style="left: 50%"><span class="cursor-label">2</span></div>
@@ -140,7 +133,28 @@
 
     <script>
         const socket = io();
-        let timerInterval = null;
+        let timerInterval;
+
+        function startTimer(duration) {
+            clearInterval(timerInterval);
+            let time = duration;
+            updateTimerDisplay(time);
+            
+            timerInterval = setInterval(() => {
+                time--;
+                if (time <= 0) {
+                    clearInterval(timerInterval);
+                    time = 0;
+                }
+                updateTimerDisplay(time);
+            }, 1000);
+        }
+
+        function updateTimerDisplay(seconds) {
+            const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+            const s = (seconds % 60).toString().padStart(2, '0');
+            document.getElementById('bonus-timer').textContent = `${m}:${s}`;
+        }
         
         function initRows() {
             const container = document.getElementById('bots-container');
@@ -186,35 +200,16 @@
         }
         initGaugeTicks();
 
-        // Fonction de mise à jour du Timer
-        function startTimer(endTime) {
-            if (timerInterval) clearInterval(timerInterval);
-            
-            function update() {
-                const now = Date.now();
-                const diff = endTime - now;
-                
-                if (diff <= 0) {
-                    document.getElementById('timer-display').textContent = "00:00";
-                    clearInterval(timerInterval);
-                    return;
-                }
-
-                const seconds = Math.floor((diff / 1000) % 60);
-                const minutes = Math.floor((diff / (1000 * 60)) % 60);
-                
-                const fmtMin = minutes < 10 ? '0' + minutes : minutes;
-                const fmtSec = seconds < 10 ? '0' + seconds : seconds;
-                
-                document.getElementById('timer-display').textContent = `${fmtMin}:${fmtSec}`;
+        socket.on('game-status', (match) => {
+            // TIMER START
+            if (match.status === 'BONUS_ACTIVE' && match.timer) {
+                startTimer(match.timer);
+            } else if (match.status !== 'BONUS_ACTIVE') {
+                clearInterval(timerInterval);
+                document.getElementById('bonus-timer').textContent = "00:00";
             }
 
-            update(); // Init immédiat
-            timerInterval = setInterval(update, 1000);
-        }
-
-        socket.on('game-status', (match) => {
-            // Mise à jour Levels
+            // Mise à jour des Niveaux (LVL X)
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -222,27 +217,19 @@
                 });
             }
 
-            // Mise à jour Curseurs
+            // Mise à jour des Curseurs
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
                     let effectiveVal = val;
                     if (val > 0) effectiveVal = val - 0.5;
                     else if (val < 0) effectiveVal = val + 0.5;
-                    
+
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     
                     const cursor = document.getElementById(`cursor-${i+1}`);
                     if(cursor) cursor.style.left = percent + '%';
                 });
-            }
-
-            // Gestion du Timer (Synchronisé)
-            if (match.status === 'BONUS_ACTIVE' && match.bonusEndTime) {
-                startTimer(match.bonusEndTime);
-            } else {
-                if(timerInterval) clearInterval(timerInterval);
-                document.getElementById('timer-display').textContent = "00:00";
             }
 
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
