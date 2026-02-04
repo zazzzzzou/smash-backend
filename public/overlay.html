@@ -29,6 +29,22 @@
             position: relative;
         }
 
+        /* TIMER STYLE */
+        #timer-display {
+            position: absolute;
+            top: -50px;
+            right: 0;
+            background: #000;
+            color: var(--smash-yellow);
+            border: 3px solid var(--smash-yellow);
+            padding: 5px 15px;
+            font-size: 1.5em;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+            text-shadow: 0 0 5px gold;
+        }
+
         .bot-row { margin-bottom: 20px; position: relative; padding: 5px; border: 2px solid transparent; transition: all 0.3s ease; }
         .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .bot-name { font-size: 1.4em; -webkit-text-stroke: 1px #000; text-shadow: 2px 2px 0px #000; }
@@ -51,7 +67,6 @@
             position: relative;
             width: 100%;
             height: 40px;
-            /* CORRECTION: 20% pour couvrir 4 cases (-10,-9,-8,-7) et 80% pour (7,8,9,10) */
             background: linear-gradient(to right, 
                 #e74c3c 0%, #e74c3c 20%, 
                 #bdc3c7 20%, #bdc3c7 80%, 
@@ -65,6 +80,19 @@
 
         .gauge-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.3); }
         
+        /* Legendes de zones */
+        .gauge-legend {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 0.7em;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px black;
+            z-index: 5;
+            pointer-events: none;
+        }
+
         .cursor {
             position: absolute; width: 0; height: 0; 
             border-left: 10px solid transparent; border-right: 10px solid transparent;
@@ -84,7 +112,6 @@
         .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; }
         .cursor-bottom .cursor-label { bottom: -20px; }
 
-        .gauge-title { text-align: center; color: var(--smash-yellow); font-size: 0.9em; margin-bottom: 5px; -webkit-text-stroke: 1px black; }
     </style>
 </head>
 <body>
@@ -96,8 +123,13 @@
         </div>
 
         <div id="gauge-container">
-            <div class="gauge-title">COMPTEUR DE LEVEL (-10 / +10)</div>
+            <div id="timer-display">00:00</div>
+
             <div class="gauge-track" id="gauge-track">
+                <div class="gauge-legend" style="left: 10%;">NIV 7</div>
+                <div class="gauge-legend" style="left: 50%;">NIV 8</div>
+                <div class="gauge-legend" style="left: 90%;">NIV 9</div>
+
                 <div id="cursor-1" class="cursor cursor-top p1" style="left: 50%"><span class="cursor-label">1</span></div>
                 <div id="cursor-2" class="cursor cursor-top p2" style="left: 50%"><span class="cursor-label">2</span></div>
                 <div id="cursor-3" class="cursor cursor-bottom p3" style="left: 50%"><span class="cursor-label">3</span></div>
@@ -108,6 +140,7 @@
 
     <script>
         const socket = io();
+        let timerInterval = null;
         
         function initRows() {
             const container = document.getElementById('bots-container');
@@ -137,8 +170,6 @@
                 tick.style.left = (i / 20 * 100) + '%';
                 tick.style.borderLeft = "1px dotted rgba(255,255,255,0.4)"; 
                 tick.style.background = "transparent";
-                
-                // CORRECTION: Traits épais à 4 (20%) et 16 (80%) pour délimiter 4 cases
                 if(i === 4 || i === 16) {
                     tick.style.borderLeft = "2px solid white";
                     tick.style.height = "100%";
@@ -155,8 +186,35 @@
         }
         initGaugeTicks();
 
+        // Fonction de mise à jour du Timer
+        function startTimer(endTime) {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            function update() {
+                const now = Date.now();
+                const diff = endTime - now;
+                
+                if (diff <= 0) {
+                    document.getElementById('timer-display').textContent = "00:00";
+                    clearInterval(timerInterval);
+                    return;
+                }
+
+                const seconds = Math.floor((diff / 1000) % 60);
+                const minutes = Math.floor((diff / (1000 * 60)) % 60);
+                
+                const fmtMin = minutes < 10 ? '0' + minutes : minutes;
+                const fmtSec = seconds < 10 ? '0' + seconds : seconds;
+                
+                document.getElementById('timer-display').textContent = `${fmtMin}:${fmtSec}`;
+            }
+
+            update(); // Init immédiat
+            timerInterval = setInterval(update, 1000);
+        }
+
         socket.on('game-status', (match) => {
-            // Mise à jour des Niveaux (LVL X)
+            // Mise à jour Levels
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -164,20 +222,27 @@
                 });
             }
 
-            // Mise à jour des Curseurs avec OFFSET (Centrage dans la case)
+            // Mise à jour Curseurs
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
                     let effectiveVal = val;
                     if (val > 0) effectiveVal = val - 0.5;
                     else if (val < 0) effectiveVal = val + 0.5;
-                    // Si 0, on reste à 0 (50%)
-
+                    
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     
                     const cursor = document.getElementById(`cursor-${i+1}`);
                     if(cursor) cursor.style.left = percent + '%';
                 });
+            }
+
+            // Gestion du Timer (Synchronisé)
+            if (match.status === 'BONUS_ACTIVE' && match.bonusEndTime) {
+                startTimer(match.bonusEndTime);
+            } else {
+                if(timerInterval) clearInterval(timerInterval);
+                document.getElementById('timer-display').textContent = "00:00";
             }
 
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));

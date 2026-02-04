@@ -34,8 +34,9 @@ let currentMatch = null;
 let currentPredictionId = null; 
 let lastPredictionData = null; 
 
-// ⭐️ VARIABLE TEMPS RÉEL (Plus rapide que la DB)
+// ⭐️ VARIABLES TEMPS RÉEL (Mémoire)
 let liveBotCounters = [0, 0, 0, 0]; 
+let matchBonusEndTime = null; // Stocke le timestamp de fin du bonus
 
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -93,12 +94,16 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
     } catch (e) { return false; }
 }
 
-// --- Helper pour envoyer le statut avec les compteurs live ---
+// --- Helper pour envoyer le statut avec les données live ---
 function emitGameStatus(io, match) {
     if (!match) return;
     const statusData = match.toObject ? match.toObject() : { ...match };
+    
+    // Injection des données mémoire
     if (!statusData.bonusResults) statusData.bonusResults = {};
     statusData.bonusResults.botCounters = liveBotCounters;
+    statusData.bonusEndTime = matchBonusEndTime; // On envoie l'heure de fin du timer
+    
     io.emit('game-status', statusData);
 }
 
@@ -107,10 +112,14 @@ function setupAdminRoutes(app, apiClient, io) {
     const closeBonusPhase = async () => {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
+            // Sauvegarde finale
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             currentMatch = await currentMatch.save(); 
+            
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
+            
+            matchBonusEndTime = null; // Reset du timer
             emitGameStatus(io, currentMatch);
         }
     };
@@ -118,7 +127,9 @@ function setupAdminRoutes(app, apiClient, io) {
     app.post('/admin/start-match', bodyParser.json(), async (req, res) => {
         const last = await Match.findOne({}).sort({ matchId: -1 });
         currentMatchId = last ? last.matchId + 1 : 1;
+        
         liveBotCounters = [0, 0, 0, 0];
+        matchBonusEndTime = null;
 
         currentMatch = new Match({
             matchId: currentMatchId, 
@@ -141,11 +152,18 @@ function setupAdminRoutes(app, apiClient, io) {
     app.post('/admin/start-bonus', bodyParser.json(), async (req, res) => {
         const duration = parseInt(req.body.duration) || 20; 
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Pari non lancé.");
+        
         currentMatch.status = 'BONUS_ACTIVE';
+        
+        // Calcul du timestamp de fin pour le Timer
+        matchBonusEndTime = Date.now() + (duration * 1000);
+
         await currentMatch.save();
         for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
+        
         if (global.bonusTimeout) clearTimeout(global.bonusTimeout);
         global.bonusTimeout = setTimeout(closeBonusPhase, duration * 1000);
+        
         emitGameStatus(io, currentMatch);
         res.send({ status: 'OK' });
     });
@@ -155,6 +173,7 @@ function setupAdminRoutes(app, apiClient, io) {
     app.post('/admin/close-match', async (req, res) => {
         if (currentMatch) {
             currentMatch.status = 'CLOSED';
+            matchBonusEndTime = null;
             await currentMatch.save();
             emitGameStatus(io, currentMatch);
         }
@@ -233,10 +252,10 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
             currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
             
+            // Sync DB background
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             await currentMatch.save();
-
         } else {
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
@@ -256,12 +275,10 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         lastPredictionData = event.outcomes.map(o => ({ title: o.title, channelPoints: o.channelPoints, users: o.users }));
         io.emit('prediction-progress', lastPredictionData);
 
-        // ⭐️ NOUVEAU : Enregistrement immédiat des parieurs visibles (Gagnants ET Perdants)
         if (event.outcomes) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
-                        // On s'assure que l'utilisateur existe en base dès qu'il parie
                         await User.findOneAndUpdate(
                             { twitchId: predictor.userId },
                             { $setOnInsert: { username: predictor.userName, totalPoints: 0, bonusUsedCount: 0 } },
@@ -277,14 +294,10 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         if (currentMatch && event.status.toLowerCase() === 'resolved') {
             try {
                 const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
-                
-                // 1. Sauvegarde de TOUS les participants (Gagnants ET Perdants)
-                // On parcourt toutes les issues pour récupérer tout le monde
                 if (prediction.outcomes) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
                         for (const v of voters) {
-                            // On crée l'user s'il n'existe pas
                             await User.findOneAndUpdate(
                                 { twitchId: v.userId },
                                 { $setOnInsert: { username: v.userName, totalPoints: 0 } },
@@ -294,26 +307,21 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     }
                 }
 
-                // 2. Attribution des points aux GAGNANTS uniquement
                 const winnerId = event.winningOutcome?.id;
                 const winningOutcome = prediction.outcomes.find(o => o.id === winnerId);
                 
                 if (winningOutcome) {
                     const winners = winningOutcome.topPredictors || []; 
                     for (const w of winners) {
-                        // Incrément des points seulement pour les gagnants
-                        await User.findOneAndUpdate(
-                            { twitchId: w.userId }, 
-                            { $inc: { totalPoints: 1 } }
-                        );
+                        await User.findOneAndUpdate({ twitchId: w.userId }, { $inc: { totalPoints: 1 } });
                     }
-                    
                     const winnerTitle = winningOutcome.title.toLowerCase();
                     const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                 }
 
                 currentMatch.status = 'CLOSED';
+                matchBonusEndTime = null;
                 await currentMatch.save();
                 emitGameStatus(io, currentMatch);
             } catch (e) { console.error("Erreur clôture:", e.message); }
