@@ -34,8 +34,9 @@ let currentMatch = null;
 let currentPredictionId = null; 
 let lastPredictionData = null; 
 
-// ⭐️ VARIABLE TEMPS RÉEL
+// ⭐️ VARIABLES TEMPS RÉEL
 let liveBotCounters = [0, 0, 0, 0]; 
+let currentBonusEndTime = 0; // Pour le timer
 
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -94,16 +95,16 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
 }
 
 // --- Helper pour envoyer le statut avec les compteurs live ---
-function emitGameStatus(io, match, extraData = {}) {
+function emitGameStatus(io, match) {
     if (!match) return;
     const statusData = match.toObject ? match.toObject() : { ...match };
     if (!statusData.bonusResults) statusData.bonusResults = {};
+    
+    // Injection des données live
     statusData.bonusResults.botCounters = liveBotCounters;
+    statusData.bonusEndTime = currentBonusEndTime; // Envoi de l'heure de fin pour le timer
     
-    // Fusion avec des données extra (comme le timer)
-    const finalData = { ...statusData, ...extraData };
-    
-    io.emit('game-status', finalData);
+    io.emit('game-status', statusData);
 }
 
 // --- Routes Admin ---
@@ -114,6 +115,8 @@ function setupAdminRoutes(app, apiClient, io) {
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             currentMatch = await currentMatch.save(); 
+            currentBonusEndTime = 0; // Reset timer
+            
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
             emitGameStatus(io, currentMatch);
         }
@@ -123,6 +126,7 @@ function setupAdminRoutes(app, apiClient, io) {
         const last = await Match.findOne({}).sort({ matchId: -1 });
         currentMatchId = last ? last.matchId + 1 : 1;
         liveBotCounters = [0, 0, 0, 0];
+        currentBonusEndTime = 0;
 
         currentMatch = new Match({
             matchId: currentMatchId, 
@@ -146,14 +150,15 @@ function setupAdminRoutes(app, apiClient, io) {
         const duration = parseInt(req.body.duration) || 20; 
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Pari non lancé.");
         currentMatch.status = 'BONUS_ACTIVE';
+        
+        // Calcul de la fin du timer
+        currentBonusEndTime = Date.now() + (duration * 1000);
+        
         await currentMatch.save();
         for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], true, false); 
         if (global.bonusTimeout) clearTimeout(global.bonusTimeout);
         global.bonusTimeout = setTimeout(closeBonusPhase, duration * 1000);
-        
-        // ⭐️ Envoi du timer à l'overlay ici
-        emitGameStatus(io, currentMatch, { timer: duration });
-        
+        emitGameStatus(io, currentMatch);
         res.send({ status: 'OK' });
     });
 
@@ -245,7 +250,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             await currentMatch.save();
 
         } else {
-            const isRefunded = await refundRedemption(apiClient, authProvider, rewardId, event.id);
+            const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
         }
     });
@@ -301,12 +306,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 if (winningOutcome) {
                     const winners = winningOutcome.topPredictors || []; 
                     for (const w of winners) {
-                        await User.findOneAndUpdate(
-                            { twitchId: w.userId }, 
-                            { $inc: { totalPoints: 1 } }
-                        );
+                        await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { totalPoints: 1 } } );
                     }
-                    
                     const winnerTitle = winningOutcome.title.toLowerCase();
                     const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;

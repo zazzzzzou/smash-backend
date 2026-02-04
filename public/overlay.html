@@ -29,17 +29,6 @@
             position: relative;
         }
 
-        /* TIMER STYLE */
-        #bonus-timer {
-            text-align: center;
-            font-size: 2em;
-            color: var(--smash-yellow);
-            -webkit-text-stroke: 1.5px black;
-            text-shadow: 3px 3px 0 #000;
-            margin-bottom: 15px;
-            font-family: 'Arial Black', sans-serif;
-        }
-
         .bot-row { margin-bottom: 20px; position: relative; padding: 5px; border: 2px solid transparent; transition: all 0.3s ease; }
         .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .bot-name { font-size: 1.4em; -webkit-text-stroke: 1px #000; text-shadow: 2px 2px 0px #000; }
@@ -56,6 +45,22 @@
         .stats-line { display: flex; justify-content: space-between; font-size: 0.85em; margin-top: 5px; color: var(--smash-yellow); font-style: italic; }
         .steak-count { color: #51cf66; font-weight: bold; }
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
+
+        /* --- TIMER --- */
+        #bonus-timer {
+            text-align: center;
+            font-size: 2em;
+            color: var(--smash-yellow);
+            margin-bottom: 15px;
+            font-family: monospace;
+            text-shadow: 2px 2px 0 #000;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #555;
+            border-radius: 5px;
+            width: 150px;
+            margin-left: auto;
+            margin-right: auto;
+        }
 
         /* --- STYLES JAUGE --- */
         .gauge-track {
@@ -75,17 +80,23 @@
 
         .gauge-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.3); }
         
-        /* Légendes de zones */
-        .legend-label {
+        /* Légendes des zones */
+        .zone-label {
             position: absolute;
             top: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 0.8em;
-            color: rgba(255,255,255,0.5);
+            transform: translateY(-50%);
+            font-size: 1.1em;
+            color: white;
+            text-align: center;
             font-weight: bold;
-            text-shadow: 1px 1px 0 #000;
+            -webkit-text-stroke: 1px black; /* Contour noir */
+            text-shadow: 0 0 3px black;
             z-index: 5;
+            white-space: nowrap;
         }
+        .lbl-7 { left: 0; width: 20%; }
+        .lbl-8 { left: 20%; width: 60%; }
+        .lbl-9 { left: 80%; width: 20%; }
 
         .cursor {
             position: absolute; width: 0; height: 0; 
@@ -117,11 +128,11 @@
 
         <div id="gauge-container">
             <div id="bonus-timer">00:00</div>
-
+            
             <div class="gauge-track" id="gauge-track">
-                <div class="legend-label" style="left: 10%;">Niv 7</div>
-                <div class="legend-label" style="left: 50%;">Niv 8</div>
-                <div class="legend-label" style="left: 90%;">Niv 9</div>
+                <div class="zone-label lbl-7">NIV 7</div>
+                <div class="zone-label lbl-8">NIV 8</div>
+                <div class="zone-label lbl-9">NIV 9</div>
 
                 <div id="cursor-1" class="cursor cursor-top p1" style="left: 50%"><span class="cursor-label">1</span></div>
                 <div id="cursor-2" class="cursor cursor-top p2" style="left: 50%"><span class="cursor-label">2</span></div>
@@ -134,27 +145,6 @@
     <script>
         const socket = io();
         let timerInterval;
-
-        function startTimer(duration) {
-            clearInterval(timerInterval);
-            let time = duration;
-            updateTimerDisplay(time);
-            
-            timerInterval = setInterval(() => {
-                time--;
-                if (time <= 0) {
-                    clearInterval(timerInterval);
-                    time = 0;
-                }
-                updateTimerDisplay(time);
-            }, 1000);
-        }
-
-        function updateTimerDisplay(seconds) {
-            const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-            const s = (seconds % 60).toString().padStart(2, '0');
-            document.getElementById('bonus-timer').textContent = `${m}:${s}`;
-        }
         
         function initRows() {
             const container = document.getElementById('bots-container');
@@ -200,15 +190,29 @@
         }
         initGaugeTicks();
 
-        socket.on('game-status', (match) => {
-            // TIMER START
-            if (match.status === 'BONUS_ACTIVE' && match.timer) {
-                startTimer(match.timer);
-            } else if (match.status !== 'BONUS_ACTIVE') {
-                clearInterval(timerInterval);
+        function updateTimer(endTime) {
+            clearInterval(timerInterval);
+            if (!endTime || endTime <= Date.now()) {
                 document.getElementById('bonus-timer').textContent = "00:00";
+                return;
             }
+            
+            timerInterval = setInterval(() => {
+                const now = Date.now();
+                const diff = Math.ceil((endTime - now) / 1000);
+                
+                if (diff <= 0) {
+                    document.getElementById('bonus-timer').textContent = "00:00";
+                    clearInterval(timerInterval);
+                } else {
+                    const m = Math.floor(diff / 60).toString().padStart(2, '0');
+                    const s = (diff % 60).toString().padStart(2, '0');
+                    document.getElementById('bonus-timer').textContent = `${m}:${s}`;
+                }
+            }, 1000);
+        }
 
+        socket.on('game-status', (match) => {
             // Mise à jour des Niveaux (LVL X)
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
@@ -217,19 +221,27 @@
                 });
             }
 
-            // Mise à jour des Curseurs
+            // Mise à jour des Curseurs avec OFFSET (Centrage dans la case)
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
                     let effectiveVal = val;
                     if (val > 0) effectiveVal = val - 0.5;
                     else if (val < 0) effectiveVal = val + 0.5;
-
+                    
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     
                     const cursor = document.getElementById(`cursor-${i+1}`);
                     if(cursor) cursor.style.left = percent + '%';
                 });
+            }
+
+            // Mise à jour du Timer
+            if (match.status === 'BONUS_ACTIVE') {
+                updateTimer(match.bonusEndTime);
+            } else {
+                clearInterval(timerInterval);
+                document.getElementById('bonus-timer').textContent = "00:00";
             }
 
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
@@ -243,6 +255,7 @@
                 for(let i=1; i<=4; i++) {
                      document.getElementById(`cursor-${i}`).style.left = '50%';
                 }
+                document.getElementById('bonus-timer').textContent = "00:00";
             }
         });
 
