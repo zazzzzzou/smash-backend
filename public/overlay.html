@@ -8,8 +8,14 @@
         :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: rgba(0, 0, 0, 0.85); }
         body { margin: 0; padding: 20px; background-color: transparent; font-family: 'Arial Black', sans-serif; color: white; overflow: hidden; text-transform: uppercase; }
         
-        /* WRAPPER POUR ALIGNEMENT HORIZONTAL */
-        .main-wrapper {
+        /* Layout Principal */
+        .main-column {
+            display: flex;
+            flex-direction: column;
+            gap: 30px; /* Espace entre le haut (Tableau+Jauge) et le bas (Roue) */
+        }
+        
+        .top-row {
             display: flex;
             flex-direction: row;
             align-items: flex-start;
@@ -20,14 +26,7 @@
         #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
         
         /* --- Jauge de Level --- */
-        #gauge-container { 
-            width: 380px; 
-            background: var(--bg-dark); 
-            padding: 20px; 
-            border: 4px solid var(--smash-yellow); 
-            box-shadow: 0 0 15px #000; 
-            position: relative;
-        }
+        #gauge-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; position: relative; }
 
         .bot-row { margin-bottom: 20px; position: relative; padding: 5px; border: 2px solid transparent; transition: all 0.3s ease; }
         .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
@@ -47,105 +46,167 @@
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
 
         /* --- TIMER --- */
-        #bonus-timer {
-            text-align: center;
-            font-size: 2em;
-            color: var(--smash-yellow);
-            margin-bottom: 15px;
-            font-family: monospace;
-            text-shadow: 2px 2px 0 #000;
-            background: rgba(0,0,0,0.5);
-            border: 2px solid #555;
-            border-radius: 5px;
-            width: 150px;
-            margin-left: auto;
-            margin-right: auto;
-        }
+        #bonus-timer { text-align: center; font-size: 2em; color: var(--smash-yellow); margin-bottom: 15px; font-family: monospace; text-shadow: 2px 2px 0 #000; background: rgba(0,0,0,0.5); border: 2px solid #555; border-radius: 5px; width: 150px; margin-left: auto; margin-right: auto; }
 
         /* --- STYLES JAUGE --- */
-        .gauge-track {
-            position: relative;
-            width: 100%;
-            height: 40px;
-            background: linear-gradient(to right, 
-                #e74c3c 0%, #e74c3c 20%, 
-                #bdc3c7 20%, #bdc3c7 80%, 
-                #27ae60 80%, #27ae60 100%
-            );
-            border: 3px solid white;
-            box-shadow: inset 0 0 10px #000;
-            margin-top: 30px; 
-            margin-bottom: 30px; 
-        }
-
+        .gauge-track { position: relative; width: 100%; height: 40px; background: linear-gradient(to right, #e74c3c 0%, #e74c3c 20%, #bdc3c7 20%, #bdc3c7 80%, #27ae60 80%, #27ae60 100%); border: 3px solid white; box-shadow: inset 0 0 10px #000; margin-top: 30px; margin-bottom: 30px; }
         .gauge-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.3); }
-        
-        /* Légendes des zones */
-        .zone-label {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 1.1em;
-            color: white;
-            text-align: center;
-            font-weight: bold;
-            -webkit-text-stroke: 1px black; /* Contour noir */
-            text-shadow: 0 0 3px black;
-            z-index: 5;
-            white-space: nowrap;
-        }
-        .lbl-7 { left: 0; width: 20%; }
-        .lbl-8 { left: 20%; width: 60%; }
-        .lbl-9 { left: 80%; width: 20%; }
+        .zone-label { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1.1em; color: white; text-align: center; font-weight: bold; -webkit-text-stroke: 1px black; text-shadow: 0 0 3px black; z-index: 5; white-space: nowrap; }
+        .lbl-7 { left: 0; width: 20%; } .lbl-8 { left: 20%; width: 60%; } .lbl-9 { left: 80%; width: 20%; }
 
-        .cursor {
-            position: absolute; width: 0; height: 0; 
-            border-left: 10px solid transparent; border-right: 10px solid transparent;
-            transform: translateX(-50%); transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            z-index: 10;
-        }
-        
+        .cursor { position: absolute; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; transform: translateX(-50%); transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 10; }
         .cursor-label { position: absolute; width: 20px; text-align: center; font-size: 12px; font-weight: bold; color: white; left: -10px; text-shadow: 1px 1px 0 #000; }
 
         .cursor-top { border-top: 15px solid; top: -20px; }
-        .cursor-top.p1 { border-top-color: #e74c3c; top: -25px; z-index: 12; }
-        .cursor-top.p2 { border-top-color: #3498db; top: -15px; z-index: 11; }
-        .cursor-top .cursor-label { top: -20px; }
-
+        .cursor-top.p1 { border-top-color: #e74c3c; top: -25px; z-index: 12; } .cursor-top.p2 { border-top-color: #3498db; top: -15px; z-index: 11; } .cursor-top .cursor-label { top: -20px; }
         .cursor-bottom { border-bottom: 15px solid; bottom: -20px; }
-        .cursor-bottom.p3 { border-bottom-color: #f1c40f; bottom: -15px; z-index: 11; }
-        .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; }
-        .cursor-bottom .cursor-label { bottom: -20px; }
+        .cursor-bottom.p3 { border-bottom-color: #f1c40f; bottom: -15px; z-index: 11; } .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; } .cursor-bottom .cursor-label { bottom: -20px; }
+
+        /* ⭐️ NOUVEAU: STYLES DE LA ROUE ⭐️ */
+        #wheel-wrapper {
+            width: 828px; /* Correspond à la largeur des 2 blocs du haut + gap */
+            background: var(--bg-dark);
+            padding: 20px;
+            border: 4px solid #9b59b6;
+            box-shadow: 0 0 15px #000;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-around;
+            box-sizing: border-box;
+        }
+
+        .wheel-box {
+            position: relative;
+            width: 250px;
+            height: 250px;
+        }
+
+        .wheel-pointer {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-top: 30px solid #FFF;
+            z-index: 10;
+            filter: drop-shadow(0 4px 5px rgba(0,0,0,1));
+        }
+
+        .wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 5px solid #FFD700;
+            box-shadow: 0 0 15px #000;
+            overflow: hidden;
+            position: relative;
+            /* Animation très tendue au lancement */
+            transition: transform 6s cubic-bezier(0.15, 0.9, 0.1, 1);
+            
+            /* Les 6 parts colorées (60 degrés chacune) */
+            background: conic-gradient(
+                #e74c3c 0deg 60deg,
+                #3498db 60deg 120deg,
+                #f1c40f 120deg 180deg,
+                #2ecc71 180deg 240deg,
+                #9b59b6 240deg 300deg,
+                #e67e22 300deg 360deg
+            );
+        }
+
+        /* Les textes dans la roue */
+        .wheel-label {
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform-origin: 50% 120px; /* Radius (125) - Padding (5) */
+            color: white;
+            font-size: 1.1em;
+            font-weight: bold;
+            text-shadow: 2px 2px 2px #000;
+        }
+
+        /* On tourne le texte pour qu'il soit centré au milieu de sa part (30 deg, 90 deg, etc.) */
+        .lbl-0 { transform: translateX(-50%) rotate(30deg); }
+        .lbl-1 { transform: translateX(-50%) rotate(90deg); }
+        .lbl-2 { transform: translateX(-50%) rotate(150deg); }
+        .lbl-3 { transform: translateX(-50%) rotate(210deg); }
+        .lbl-4 { transform: translateX(-50%) rotate(270deg); }
+        .lbl-5 { transform: translateX(-50%) rotate(330deg); }
+
+        .wheel-result-box {
+            background: #111;
+            border: 4px solid #9b59b6;
+            padding: 20px;
+            width: 350px;
+            text-align: center;
+            font-size: 1.8em;
+            color: #FFD700;
+            box-shadow: inset 0 0 10px #000;
+        }
+
+        .result-flash {
+            animation: jackpot 0.5s ease-in-out 4 alternate;
+        }
+        @keyframes jackpot {
+            from { background: #111; color: #FFD700; transform: scale(1); }
+            to { background: #FFD700; color: #000; transform: scale(1.1); }
+        }
     </style>
 </head>
 <body>
     
-    <div class="main-wrapper">
-        <div id="overlay-container">
-            <div id="bots-container"></div>
-            <div id="bonus-alert"></div>
-        </div>
+    <div class="main-column">
+        
+        <div class="top-row">
+            <div id="overlay-container">
+                <div id="bots-container"></div>
+                <div id="bonus-alert"></div>
+            </div>
 
-        <div id="gauge-container">
-            <div id="bonus-timer">00:00</div>
-            
-            <div class="gauge-track" id="gauge-track">
-                <div class="zone-label lbl-7">NIV 7</div>
-                <div class="zone-label lbl-8">NIV 8</div>
-                <div class="zone-label lbl-9">NIV 9</div>
+            <div id="gauge-container">
+                <div id="bonus-timer">00:00</div>
+                <div class="gauge-track" id="gauge-track">
+                    <div class="zone-label lbl-7">NIV 7</div>
+                    <div class="zone-label lbl-8">NIV 8</div>
+                    <div class="zone-label lbl-9">NIV 9</div>
 
-                <div id="cursor-1" class="cursor cursor-top p1" style="left: 50%"><span class="cursor-label">1</span></div>
-                <div id="cursor-2" class="cursor cursor-top p2" style="left: 50%"><span class="cursor-label">2</span></div>
-                <div id="cursor-3" class="cursor cursor-bottom p3" style="left: 50%"><span class="cursor-label">3</span></div>
-                <div id="cursor-4" class="cursor cursor-bottom p4" style="left: 50%"><span class="cursor-label">4</span></div>
+                    <div id="cursor-1" class="cursor cursor-top p1" style="left: 50%"><span class="cursor-label">1</span></div>
+                    <div id="cursor-2" class="cursor cursor-top p2" style="left: 50%"><span class="cursor-label">2</span></div>
+                    <div id="cursor-3" class="cursor cursor-bottom p3" style="left: 50%"><span class="cursor-label">3</span></div>
+                    <div id="cursor-4" class="cursor cursor-bottom p4" style="left: 50%"><span class="cursor-label">4</span></div>
+                </div>
             </div>
         </div>
+
+        <div id="wheel-wrapper">
+            <div class="wheel-box">
+                <div class="wheel-pointer"></div>
+                <div class="wheel" id="the-wheel">
+                    <div class="wheel-label lbl-0">Choix 1</div>
+                    <div class="wheel-label lbl-1">Choix 2</div>
+                    <div class="wheel-label lbl-2">Choix 3</div>
+                    <div class="wheel-label lbl-3">Choix 4</div>
+                    <div class="wheel-label lbl-4">Choix 5</div>
+                    <div class="wheel-label lbl-5">Choix 6</div>
+                </div>
+            </div>
+            <div class="wheel-result-box" id="wheel-result">
+                EN ATTENTE...
+            </div>
+        </div>
+
     </div>
 
     <script>
         const socket = io();
         let timerInterval;
         
+        // --- Init ---
         function initRows() {
             const container = document.getElementById('bots-container');
             container.innerHTML = '';
@@ -196,11 +257,9 @@
                 document.getElementById('bonus-timer').textContent = "00:00";
                 return;
             }
-            
             timerInterval = setInterval(() => {
                 const now = Date.now();
                 const diff = Math.ceil((endTime - now) / 1000);
-                
                 if (diff <= 0) {
                     document.getElementById('bonus-timer').textContent = "00:00";
                     clearInterval(timerInterval);
@@ -212,8 +271,8 @@
             }, 1000);
         }
 
+        // --- Sockets ---
         socket.on('game-status', (match) => {
-            // Mise à jour des Niveaux (LVL X)
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
                     const row = document.getElementById(`bot-row-${i+1}`);
@@ -221,7 +280,6 @@
                 });
             }
 
-            // Mise à jour des Curseurs avec OFFSET (Centrage dans la case)
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
                     let effectiveVal = val;
@@ -236,7 +294,6 @@
                 });
             }
 
-            // Mise à jour du Timer
             if (match.status === 'BONUS_ACTIVE') {
                 updateTimer(match.bonusEndTime);
             } else {
@@ -252,10 +309,12 @@
             if (match.status === 'AWAITING_PREDICTION') {
                 document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
                 document.querySelectorAll('.pts-val, .perc-val').forEach(v => v.textContent = '0');
-                for(let i=1; i<=4; i++) {
-                     document.getElementById(`cursor-${i}`).style.left = '50%';
-                }
+                for(let i=1; i<=4; i++) document.getElementById(`cursor-${i}`).style.left = '50%';
                 document.getElementById('bonus-timer').textContent = "00:00";
+                
+                // Reset Roue
+                document.getElementById('wheel-result').textContent = "EN ATTENTE...";
+                document.getElementById('wheel-result').classList.remove('result-flash');
             }
         });
 
@@ -280,6 +339,38 @@
                 box.textContent = `✨ ${data.user} : ${data.type} sur Ordi ${data.input}`;
                 setTimeout(() => box.textContent = '', 4000);
             }
+        });
+
+        // ⭐️ ANIMATION DE LA ROUE ⭐️
+        let currentRotation = 0;
+        
+        socket.on('spin-wheel', (data) => {
+            const wheel = document.getElementById('the-wheel');
+            const resultBox = document.getElementById('wheel-result');
+            
+            resultBox.textContent = "TOURNE...";
+            resultBox.classList.remove('result-flash');
+
+            // 6 parts = 60 degrés par part.
+            const sliceAngle = 60;
+            // Pour tomber sur l'index X (qui s'étale de X*60 à X*60+60), on vise le milieu de sa part (X*60 + 30).
+            // Le pointeur est en haut à 12h (0 deg de l'écran). Pour amener cet angle sous le pointeur, on doit pivoter la roue de (360 - angle).
+            const targetAngle = 360 - (data.winnerIndex * sliceAngle + 30);
+            
+            // On ajoute 5 tours complets (1800 degrés) de suspense + on compense la rotation actuelle
+            const extraSpins = 5 * 360;
+            const currentMod = currentRotation % 360;
+            let diff = targetAngle - currentMod;
+            if (diff <= 0) diff += 360; // S'assurer de toujours avancer
+
+            currentRotation += extraSpins + diff;
+            wheel.style.transform = `rotate(${currentRotation}deg)`;
+
+            // A la fin de l'animation (6s)
+            setTimeout(() => {
+                resultBox.textContent = `🎉 ${data.winnerName} ! 🎉`;
+                resultBox.classList.add('result-flash');
+            }, data.duration);
         });
     </script>
 </body>

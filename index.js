@@ -29,6 +29,9 @@ const NEW_ALL_REWARDS = [
     { name: process.env.REWARD_NAME_CHOIX_PERSO, key: 'CHOIX_PERSO' }
 ];
 
+// ⭐️ CHOIX DE LA ROUE (Saison 2)
+const WHEEL_CHOICES = ["Choix 1", "Choix 2", "Choix 3", "Choix 4", "Choix 5", "Choix 6"];
+
 let currentMatchId = 0; 
 let currentMatch = null; 
 let currentPredictionId = null; 
@@ -79,7 +82,6 @@ async function mapRewardNamesToIds(apiClient) {
 }
 
 async function refundRedemption(apiClient, authProvider, rewardId, redemptionId) {
-    console.log(`[REFUND-LOG] Début tentative: Reward=${rewardId}, ID=${redemptionId}`);
     try {
         const token = await authProvider.getAccessTokenForUser(channelUserId);
         if (!token || !token.accessToken) return false;
@@ -94,15 +96,13 @@ async function refundRedemption(apiClient, authProvider, rewardId, redemptionId)
     } catch (e) { return false; }
 }
 
-// --- Helper pour envoyer le statut avec les compteurs live ---
 function emitGameStatus(io, match) {
     if (!match) return;
     const statusData = match.toObject ? match.toObject() : { ...match };
     if (!statusData.bonusResults) statusData.bonusResults = {};
     
-    // Injection des données live
     statusData.bonusResults.botCounters = liveBotCounters;
-    statusData.bonusEndTime = currentBonusEndTime; // Envoi de l'heure de fin pour le timer
+    statusData.bonusEndTime = currentBonusEndTime;
     
     io.emit('game-status', statusData);
 }
@@ -115,7 +115,7 @@ function setupAdminRoutes(app, apiClient, io) {
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             currentMatch = await currentMatch.save(); 
-            currentBonusEndTime = 0; // Reset timer
+            currentBonusEndTime = 0; 
             
             for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
             emitGameStatus(io, currentMatch);
@@ -151,7 +151,6 @@ function setupAdminRoutes(app, apiClient, io) {
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Pari non lancé.");
         currentMatch.status = 'BONUS_ACTIVE';
         
-        // Calcul de la fin du timer
         currentBonusEndTime = Date.now() + (duration * 1000);
         
         await currentMatch.save();
@@ -171,6 +170,16 @@ function setupAdminRoutes(app, apiClient, io) {
             emitGameStatus(io, currentMatch);
         }
         res.send({ status: 'OK' });
+    });
+
+    // ⭐️ NOUVELLE ROUTE POUR LA ROUE
+    app.post('/admin/spin-wheel', async (req, res) => {
+        const winnerIndex = Math.floor(Math.random() * WHEEL_CHOICES.length);
+        const winnerName = WHEEL_CHOICES[winnerIndex];
+        const durationMs = 6000; // 6 secondes de suspense
+        
+        io.emit('spin-wheel', { winnerIndex, winnerName, duration: durationMs });
+        res.send({ status: 'OK', winnerName });
     });
 
     app.get('/api/classement/points', async (req, res) => {
@@ -205,15 +214,9 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 let currentVal = liveBotCounters[idx]; 
                 const isUp = (rewardKey === 'LEVEL_UP');
 
-                if (isUp && currentVal < 10) {
-                    liveBotCounters[idx]++; 
-                    success = true;
-                } else if (!isUp && currentVal > -10) {
-                    liveBotCounters[idx]--; 
-                    success = true;
-                } else {
-                    logMsg = isUp ? "Max (+10) atteint" : "Min (-10) atteint";
-                }
+                if (isUp && currentVal < 10) { liveBotCounters[idx]++; success = true; } 
+                else if (!isUp && currentVal > -10) { liveBotCounters[idx]--; success = true; } 
+                else { logMsg = isUp ? "Max (+10) atteint" : "Min (-10) atteint"; }
 
                 if (success) {
                     const newVal = liveBotCounters[idx];
@@ -272,11 +275,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
-                        await User.findOneAndUpdate(
-                            { twitchId: predictor.userId },
-                            { $setOnInsert: { username: predictor.userName, totalPoints: 0, bonusUsedCount: 0 } },
-                            { upsert: true }
-                        );
+                        await User.findOneAndUpdate({ twitchId: predictor.userId }, { $setOnInsert: { username: predictor.userName, totalPoints: 0, bonusUsedCount: 0 } }, { upsert: true });
                     }
                 }
             }
@@ -291,11 +290,7 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
                         for (const v of voters) {
-                            await User.findOneAndUpdate(
-                                { twitchId: v.userId },
-                                { $setOnInsert: { username: v.userName, totalPoints: 0 } },
-                                { upsert: true }
-                            );
+                            await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, totalPoints: 0 } }, { upsert: true });
                         }
                     }
                 }
