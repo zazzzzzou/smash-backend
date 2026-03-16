@@ -73,26 +73,32 @@
             transition: transform 6s cubic-bezier(0.15, 0.9, 0.1, 1);
         }
 
-        /* ⭐️ BOÎTE DE TEXTE AUTO-RESIZING (Haut) ⭐️ */
+        /* ⭐️ NOUVELLE STRATÉGIE: TEXTE RADIAL (Du centre vers le bord) ⭐️ */
         .wheel-label {
             position: absolute;
-            bottom: 50%; /* Point d'ancrage = centre de la roue */
+            top: 50%;
             left: 50%;
-            transform-origin: bottom center;
-            display: flex;
+            /* La boîte de texte part du centre et va jusqu'au bord. (Rayon=125, on prend 100px pour laisser une petite marge) */
+            width: 100px;
+            height: 30px;
+            margin-top: -15px; /* Pour centrer verticalement la ligne de texte */
             
-            /* ⭐️ MAJ: Alignement en haut, pas au centre ⭐️ */
-            align-items: flex-start; 
-            justify-content: center;
-            text-align: center;
+            transform-origin: left center; /* Le point de pivot est le bord gauche de la div (au centre de la roue) */
+            
+            display: flex;
+            align-items: center;
+            justify-content: flex-end; /* Le texte est poussé vers la droite, donc vers le bord extérieur de la roue */
+            
+            padding-right: 5px; /* Évite de coller parfaitement au bord doré */
+            box-sizing: border-box;
             
             color: white;
             font-weight: bold;
-            text-shadow: 2px 2px 2px #000;
-            word-wrap: break-word;
-            overflow: hidden; /* Sécurité */
-            line-height: 1.1;
-            padding: 0 2px; /* Petite marge latérale interne */
+            /* Outline prononcé pour que ça ressorte sur toutes les couleurs */
+            text-shadow: 2px 2px 0px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+            
+            white-space: nowrap; /* Interdit de passer à la ligne */
+            overflow: hidden; /* Masque ce qui dépasse strictement */
         }
 
         .wheel-result-box {
@@ -247,7 +253,7 @@
             }
         });
 
-        // ⭐️ LOGIQUE ROUE DYNAMIQUE (Texte collé en haut) ⭐️
+        // ⭐️ LOGIQUE ROUE RADIALE ⭐️
         let currentRotation = 0;
         const wheelColors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#34495e', '#d35400'];
 
@@ -260,9 +266,6 @@
             const sliceAngle = 360 / N;
             let gradientParts = [];
 
-            // Calculer la largeur max safe (corde de l'arc)
-            let safeWidth = Math.max(30, Math.floor(2 * 115 * Math.sin(Math.PI / N)));
-
             for(let i=0; i<N; i++) {
                 const color = wheelColors[i % wheelColors.length];
                 gradientParts.push(`${color} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`);
@@ -270,27 +273,22 @@
                 const label = document.createElement('div');
                 label.className = 'wheel-label';
                 
-                // Définition de la boîte limite
-                label.style.width = safeWidth + 'px';
-                label.style.marginLeft = -(safeWidth / 2) + 'px'; // Centrage horizontal par rapport au rayon
+                // Formule pour pointer au milieu de la part (en compensant le 0deg CSS qui pointe vers la droite)
+                const angleCSS = -90 + (i * sliceAngle) + (sliceAngle / 2);
                 
-                // ⭐️ MAJ: Remonte le texte ⭐️
-                // 2px du bord doré extérieur, hauteur suffisante pour descendre vers le centre
-                label.style.top = '2px'; 
-                label.style.height = '120px'; // Rayon total ~125px
-                
+                // On translate légèrement de 20px pour ne pas que le texte s'entasse au point central (0,0)
+                label.style.transform = `rotate(${angleCSS}deg) translateX(20px)`;
                 label.textContent = choices[i];
-                label.style.transform = `rotate(${i * sliceAngle + sliceAngle / 2}deg)`;
                 
-                wheel.appendChild(label);
+                wheel.appendChild(label); // On attache l'élément au DOM AVANT de faire les calculs de dimension
 
-                // ⭐️ MAJ: Police par défaut plus petite ⭐️
-                let fontSize = 18; 
+                // ⭐️ Redimensionnement dynamique ultra-robuste
+                let fontSize = 20; 
                 label.style.fontSize = fontSize + 'px';
                 
-                // Tant que ça déborde (en hauteur ou largeur), on réduit (min 8px)
-                while ((label.scrollHeight > label.clientHeight || label.scrollWidth > label.clientWidth) && fontSize > 8) {
-                    fontSize -= 1;
+                // Dès que le texte dépasse les 100px (client width défini dans le CSS), on réduit.
+                while (label.scrollWidth > label.clientWidth && fontSize > 8) {
+                    fontSize -= 0.5; // On réduit doucement pour un rendu optimal
                     label.style.fontSize = fontSize + 'px';
                 }
             }
