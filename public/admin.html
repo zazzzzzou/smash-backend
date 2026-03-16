@@ -23,7 +23,7 @@
         .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
         .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
         
-        /* Styles spécifiques pour l'éditeur de roue */
+        /* Éditeur Roue */
         .wheel-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
         .wheel-input { flex-grow: 1; background: #000; color: white; border: 2px solid #9b59b6; padding: 10px; font-family: 'Arial Black'; font-size: 1em; }
         .btn-small { padding: 10px 15px; font-size: 1em; margin: 0; }
@@ -52,9 +52,13 @@
         <h2 style="color: #9b59b6;">🎲 Roue des Bonus</h2>
         
         <div style="background: #222; padding: 15px; border: 2px solid #555; margin-bottom: 15px;">
-            <div id="wheel-config-container">
-                </div>
-            <button class="btn-small" onclick="addWheelChoice()" style="margin-top: 10px;">+ Ajouter une part</button>
+            <div id="wheel-config-container"></div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+                <button class="btn-small" onclick="addWheelChoice()">+ Ajouter une part</button>
+                <button class="btn-small" onclick="setWheelPool()" style="background: #2ecc71; border-color:#27ae60; color: white;">Set pour la soirée</button>
+                <button class="btn-small" onclick="resetWheelPool()" style="background: #e67e22; border-color:#d35400; color: white;">Fin de soirée (Reset)</button>
+            </div>
         </div>
 
         <button id="btn-spin" onclick="spinWheel()" style="background: #9b59b6; color: white; width: 100%; font-size: 1.5em; padding: 20px;">LANCER LA ROUE</button>
@@ -134,8 +138,7 @@
         }
         
         async function startNewMatch() { 
-            document.getElementById('log-container').innerHTML = ''; 
-            addLog("Nouveau match initialisé. Logs vidés.");
+            document.getElementById('log-container').innerHTML = ''; addLog("Nouveau match initialisé. Logs vidés.");
             fetch(`${apiBaseUrl}/admin/start-match`, { method: 'POST' }); 
         }
         async function startBonusPhase() {
@@ -147,6 +150,7 @@
         
         // --- LOGIQUE ROUE DES BONUS ---
         let currentWheel = [];
+        let typingTimer;
 
         async function loadWheelConfig() {
             const res = await fetch(`${apiBaseUrl}/api/wheel`);
@@ -160,48 +164,67 @@
             currentWheel.forEach((choice, i) => {
                 container.innerHTML += `
                     <div class="wheel-input-row">
-                        <input type="text" class="wheel-input" value="${choice}" onchange="updateChoice(${i}, this.value)">
+                        <input type="text" class="wheel-input" value="${choice}" oninput="handleWheelInput(${i}, this.value)">
                         <button class="btn-small btn-red" onclick="removeChoice(${i})">X</button>
                     </div>
                 `;
             });
         }
 
-        async function saveWheelConfig() {
-            await fetch(`${apiBaseUrl}/admin/update-wheel`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ choices: currentWheel })
-            });
+        // Auto-save dynamique lors de la frappe (Debounce pour éviter le spam réseau)
+        function handleWheelInput(index, val) {
+            currentWheel[index] = val;
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                fetch(`${apiBaseUrl}/admin/update-wheel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices: currentWheel }) });
+            }, 100); 
         }
 
-        function updateChoice(index, val) { currentWheel[index] = val; saveWheelConfig(); }
-        function addWheelChoice() { currentWheel.push(`Nouveau Bonus`); saveWheelConfig(); renderWheelInputs(); }
-        function removeChoice(index) { 
-            if(currentWheel.length <= 2) return alert("Il faut au minimum 2 parts dans la roue !");
-            currentWheel.splice(index, 1); 
-            saveWheelConfig(); 
+        function addWheelChoice() { 
+            currentWheel.push(`Bonus`); 
+            fetch(`${apiBaseUrl}/admin/update-wheel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices: currentWheel }) });
             renderWheelInputs(); 
         }
 
-        async function spinWheel() {
-            const btn = document.getElementById('btn-spin');
-            btn.disabled = true;
-            btn.textContent = "ROUE EN ROTATION...";
-            await fetch(`${apiBaseUrl}/admin/spin-wheel`, { method: 'POST' });
-            setTimeout(() => {
-                btn.disabled = false;
-                btn.textContent = "LANCER LA ROUE";
-            }, 6000); 
+        function removeChoice(index) { 
+            if(currentWheel.length <= 2) return alert("Il faut au minimum 2 parts !");
+            currentWheel.splice(index, 1); 
+            fetch(`${apiBaseUrl}/admin/update-wheel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices: currentWheel }) });
+            renderWheelInputs(); 
         }
 
-        // Init
+        // Mémoire de soirée
+        async function setWheelPool() {
+            if(confirm("Enregistrer cette liste comme base pour la soirée ?")) {
+                await fetch(`${apiBaseUrl}/admin/set-wheel-pool`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices: currentWheel }) });
+                alert("Roue mémorisée !");
+            }
+        }
+
+        async function resetWheelPool() {
+            if(confirm("Remettre tous les bonus initiaux dans la roue ?")) {
+                await fetch(`${apiBaseUrl}/admin/reset-wheel-pool`, { method: 'POST' });
+            }
+        }
+
+        async function spinWheel() {
+            if(currentWheel.length === 0) return alert("La roue est vide !");
+            const btn = document.getElementById('btn-spin');
+            btn.disabled = true; btn.textContent = "ROUE EN ROTATION...";
+            await fetch(`${apiBaseUrl}/admin/spin-wheel`, { method: 'POST' });
+            setTimeout(() => { btn.disabled = false; btn.textContent = "LANCER LA ROUE"; }, 6000); 
+        }
+
+        // Quand le serveur retire un item gagnant ou reset, on redessine l'interface sans perte de focus
+        socket.on('wheel-item-removed', (choices) => {
+            currentWheel = choices;
+            renderWheelInputs();
+        });
+
         loadWheelConfig();
         socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {
-            const type = data.type || "Bonus";
-            const input = data.input || "N/A";
-            addLog(`${data.isSuccess ? '✨ SUCCÈS' : '❌ ÉCHEC'}: ${data.user} -> ${type} (Ordi ${input})`, data.isSuccess);
+            addLog(`${data.isSuccess ? '✨ SUCCÈS' : '❌ ÉCHEC'}: ${data.user} -> ${data.type} (Ordi ${data.input})`, data.isSuccess);
         });
         fetch(`${apiBaseUrl}/api/current-match`).then(r => r.json()).then(updateUI);
     </script>

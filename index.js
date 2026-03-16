@@ -37,7 +37,8 @@ let lastPredictionData = null;
 // ⭐️ VARIABLES TEMPS RÉEL
 let liveBotCounters = [0, 0, 0, 0]; 
 let currentBonusEndTime = 0; 
-let wheelChoices = ["Choix 1", "Choix 2", "Choix 3", "Choix 4", "Choix 5", "Choix 6"]; // Roue par défaut
+let wheelChoices = ["Choix 1", "Choix 2", "Choix 3", "Choix 4"]; 
+let originalWheelChoices = [...wheelChoices]; // Mémoire de la soirée
 
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -130,11 +131,8 @@ function setupAdminRoutes(app, apiClient, io) {
             matchId: currentMatchId, 
             status: 'AWAITING_PREDICTION',
             bonusResults: { 
-                botLevels: [8,8,8,8], 
-                botCounters: liveBotCounters, 
-                levelUpUsedForBot: [false,false,false,false], 
-                levelDownUsedForBot: [false,false,false,false], 
-                charSelectUsedForBot: [false,false,false,false], 
+                botLevels: [8,8,8,8], botCounters: liveBotCounters, 
+                levelUpUsedForBot: [false,false,false,false], levelDownUsedForBot: [false,false,false,false], charSelectUsedForBot: [false,false,false,false], 
                 log: [] 
             }
         });
@@ -148,7 +146,6 @@ function setupAdminRoutes(app, apiClient, io) {
         const duration = parseInt(req.body.duration) || 20; 
         if (!currentMatch || currentMatch.status !== 'BETTING') return res.status(400).send("Pari non lancé.");
         currentMatch.status = 'BONUS_ACTIVE';
-        
         currentBonusEndTime = Date.now() + (duration * 1000);
         
         await currentMatch.save();
@@ -160,27 +157,42 @@ function setupAdminRoutes(app, apiClient, io) {
     });
 
     app.post('/admin/stop-bonus', async (req, res) => { await closeBonusPhase(); res.send({ status: 'OK' }); });
-
     app.post('/admin/close-match', async (req, res) => {
-        if (currentMatch) {
-            currentMatch.status = 'CLOSED';
-            await currentMatch.save();
-            emitGameStatus(io, currentMatch);
-        }
+        if (currentMatch) { currentMatch.status = 'CLOSED'; await currentMatch.save(); emitGameStatus(io, currentMatch); }
         res.send({ status: 'OK' });
     });
 
     // ⭐️ ROUTES POUR LA ROUE DES BONUS
     app.get('/api/wheel', (req, res) => res.json(wheelChoices));
 
+    // Edition Live par BLB
     app.post('/admin/update-wheel', bodyParser.json(), (req, res) => {
         if (req.body.choices && Array.isArray(req.body.choices)) {
             wheelChoices = req.body.choices;
-            io.emit('wheel-updated', wheelChoices); // Met à jour l'overlay en direct
+            io.emit('wheel-updated', wheelChoices);
         }
         res.send({ status: 'OK' });
     });
 
+    // Sauvegarde "Set pour la soirée"
+    app.post('/admin/set-wheel-pool', bodyParser.json(), (req, res) => {
+        if (req.body.choices && Array.isArray(req.body.choices)) {
+            wheelChoices = req.body.choices;
+            originalWheelChoices = [...wheelChoices]; // On mémorise
+            io.emit('wheel-updated', wheelChoices);
+        }
+        res.send({ status: 'OK' });
+    });
+
+    // Restauration "Fin de soirée"
+    app.post('/admin/reset-wheel-pool', (req, res) => {
+        wheelChoices = [...originalWheelChoices];
+        io.emit('wheel-updated', wheelChoices);
+        io.emit('wheel-item-removed', wheelChoices); // Force le rafraîchissement de l'admin
+        res.send({ status: 'OK', choices: wheelChoices });
+    });
+
+    // Spin et Retrait
     app.post('/admin/spin-wheel', async (req, res) => {
         if (wheelChoices.length === 0) return res.status(400).send("Roue vide");
         const winnerIndex = Math.floor(Math.random() * wheelChoices.length);
@@ -188,17 +200,19 @@ function setupAdminRoutes(app, apiClient, io) {
         const durationMs = 6000;
         
         io.emit('spin-wheel', { winnerIndex, winnerName, duration: durationMs });
+        
+        // Retrait automatique 2 secondes APRÈS la fin de l'animation
+        setTimeout(() => {
+            wheelChoices.splice(winnerIndex, 1);
+            io.emit('wheel-updated', wheelChoices);
+            io.emit('wheel-item-removed', wheelChoices); // Signale à Admin.html de se redessiner
+        }, durationMs + 2000);
+
         res.send({ status: 'OK', winnerName });
     });
 
-    app.get('/api/classement/points', async (req, res) => {
-        try { res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id')); } 
-        catch (e) { res.status(500).send(e.message); }
-    });
-    app.get('/api/classement/bonus', async (req, res) => {
-        try { res.json(await User.find({}).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount -_id')); } 
-        catch (e) { res.status(500).send(e.message); }
-    });
+    app.get('/api/classement/points', async (req, res) => { try { res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id')); } catch (e) { res.status(500).send(e.message); } });
+    app.get('/api/classement/bonus', async (req, res) => { try { res.json(await User.find({}).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount -_id')); } catch (e) { res.status(500).send(e.message); } });
     app.get('/api/current-match', async (req, res) => res.json(currentMatch || { status: 'CLOSED' }));
 
     return { closeBonusPhase };
@@ -214,15 +228,13 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         const rewardKey = Object.keys(REWARD_IDS).find(k => REWARD_IDS[k] === event.rewardId);
         if (!rewardKey) return;
         const input = (event.input || '').trim();
-        let success = false;
-        let logMsg = "";
+        let success = false, logMsg = "";
 
         if (rewardKey === 'LEVEL_UP' || rewardKey === 'LEVEL_DOWN') {
             const idx = parseInt(input) - 1;
             if (idx >= 0 && idx <= 3) {
                 let currentVal = liveBotCounters[idx]; 
                 const isUp = (rewardKey === 'LEVEL_UP');
-
                 if (isUp && currentVal < 10) { liveBotCounters[idx]++; success = true; } 
                 else if (!isUp && currentVal > -10) { liveBotCounters[idx]--; success = true; } 
                 else { logMsg = isUp ? "Max (+10) atteint" : "Min (-10) atteint"; }
@@ -235,15 +247,13 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.bonusResults.botLevels[idx] = newLevel;
                 }
             } else logMsg = "Ordi 1-4 requis.";
-        } 
-        else if (rewardKey === 'CHOIX_PERSO') {
+        } else if (rewardKey === 'CHOIX_PERSO') {
             const regex = /^([1-4])\s+\S+/;
             const match = input.match(regex);
             if (match) {
                 const botIdx = parseInt(match[1]) - 1;
                 if (!currentMatch.bonusResults.charSelectUsedForBot[botIdx]) {
-                    currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true;
-                    success = true;
+                    currentMatch.bonusResults.charSelectUsedForBot[botIdx] = true; success = true;
                 } else logMsg = "Déjà choisi.";
             } else logMsg = "Format invalide.";
         }
@@ -251,16 +261,13 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         if (success) {
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
             emitGameStatus(io, currentMatch);
-
             const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
             User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true }).exec();
             (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
             currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
-            
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             await currentMatch.save();
-
         } else {
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
@@ -269,17 +276,14 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
         if (event.title.startsWith(GAME_PREDICTION_TITLE_MARKER) && currentMatch?.status === 'AWAITING_PREDICTION') {
-            currentMatch.twitchPredictionId = event.id;
-            currentMatch.status = 'BETTING';
-            await currentMatch.save();
-            emitGameStatus(io, currentMatch);
+            currentMatch.twitchPredictionId = event.id; currentMatch.status = 'BETTING';
+            await currentMatch.save(); emitGameStatus(io, currentMatch);
         }
     });
 
     listener.onChannelPredictionProgress(channelUserId, async (event) => {
         lastPredictionData = event.outcomes.map(o => ({ title: o.title, channelPoints: o.channelPoints, users: o.users }));
         io.emit('prediction-progress', lastPredictionData);
-
         if (event.outcomes) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
@@ -298,28 +302,20 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 if (prediction.outcomes) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
-                        for (const v of voters) {
-                            await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, totalPoints: 0 } }, { upsert: true });
-                        }
+                        for (const v of voters) { await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, totalPoints: 0 } }, { upsert: true }); }
                     }
                 }
-
                 const winnerId = event.winningOutcome?.id;
                 const winningOutcome = prediction.outcomes.find(o => o.id === winnerId);
-                
                 if (winningOutcome) {
                     const winners = winningOutcome.topPredictors || []; 
-                    for (const w of winners) {
-                        await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { totalPoints: 1 } } );
-                    }
+                    for (const w of winners) { await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { totalPoints: 1 } } ); }
                     const winnerTitle = winningOutcome.title.toLowerCase();
                     const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                 }
-
                 currentMatch.status = 'CLOSED';
-                await currentMatch.save();
-                emitGameStatus(io, currentMatch);
+                await currentMatch.save(); emitGameStatus(io, currentMatch);
             } catch (e) { console.error("Erreur clôture:", e.message); }
         }
     });
@@ -331,30 +327,20 @@ async function main() {
     await connectDB();
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
     if (lastMatch) { 
-        currentMatch = lastMatch; 
-        currentMatchId = lastMatch.matchId; 
-        currentPredictionId = lastMatch.twitchPredictionId;
-        if(currentMatch.bonusResults && currentMatch.bonusResults.botCounters) {
-            liveBotCounters = currentMatch.bonusResults.botCounters;
-        }
+        currentMatch = lastMatch; currentMatchId = lastMatch.matchId; currentPredictionId = lastMatch.twitchPredictionId;
+        if(currentMatch.bonusResults && currentMatch.bonusResults.botCounters) liveBotCounters = currentMatch.bonusResults.botCounters;
     }
-    
-    const app = express();
-    const httpServer = createServer(app);
-    const io = new Server(httpServer);
+    const app = express(); const httpServer = createServer(app); const io = new Server(httpServer);
     app.use(express.static('public'));
-    
-    const authProvider = await getAuthProvider();
-    const apiClient = new ApiClient({ authProvider });
+    const authProvider = await getAuthProvider(); const apiClient = new ApiClient({ authProvider });
     await mapRewardNamesToIds(apiClient);
-    
     const { closeBonusPhase } = setupAdminRoutes(app, apiClient, io);
     const listener = setupEventSub(app, apiClient, io, closeBonusPhase, authProvider);
     
     io.on('connection', (socket) => {
         if (currentMatch) emitGameStatus(socket, currentMatch);
         if (lastPredictionData) socket.emit('prediction-progress', lastPredictionData);
-        socket.emit('wheel-updated', wheelChoices); // Envoie la config de la roue à la connexion
+        socket.emit('wheel-updated', wheelChoices);
     });
 
     await listener.markAsReady();

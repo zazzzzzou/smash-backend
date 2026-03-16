@@ -7,7 +7,6 @@
     <style>
         :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: rgba(0, 0, 0, 0.85); }
         
-        /* ⭐️ AJOUT DU SCROLL VERTICAL ⭐️ */
         body { 
             margin: 0; padding: 20px; background-color: transparent; 
             font-family: 'Arial Black', sans-serif; color: white; 
@@ -15,7 +14,6 @@
             text-transform: uppercase; 
         }
 
-        /* Scrollbar personnalisée style Smash */
         ::-webkit-scrollbar { width: 10px; }
         ::-webkit-scrollbar-track { background: rgba(0,0,0,0.5); }
         ::-webkit-scrollbar-thumb { background: var(--smash-yellow); border-radius: 5px; }
@@ -75,22 +73,21 @@
             transition: transform 6s cubic-bezier(0.15, 0.9, 0.1, 1);
         }
 
-        /* Classes générées dynamiquement par le JS */
+        /* ⭐️ BOÎTE DE TEXTE AUTO-RESIZING ⭐️ */
         .wheel-label {
             position: absolute;
-            top: 5px; /* Décolle légèrement du bord */
+            bottom: 50%; /* Point d'ancrage = centre de la roue */
             left: 50%;
-            width: 80px;
-            height: 115px; /* Rayon (125) - Marge (10) */
             transform-origin: bottom center;
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: center;
             text-align: center;
             color: white;
             font-weight: bold;
             text-shadow: 2px 2px 2px #000;
             word-wrap: break-word;
+            line-height: 1;
         }
 
         .wheel-result-box {
@@ -128,8 +125,7 @@
         <div id="wheel-wrapper">
             <div class="wheel-box">
                 <div class="wheel-pointer"></div>
-                <div class="wheel" id="the-wheel">
-                    </div>
+                <div class="wheel" id="the-wheel"></div>
             </div>
             <div class="wheel-result-box" id="wheel-result">
                 EN ATTENTE...
@@ -162,10 +158,8 @@
             const track = document.getElementById('gauge-track');
             for(let i=1; i<20; i++) {
                 const tick = document.createElement('div');
-                tick.className = 'gauge-tick';
-                tick.style.left = (i / 20 * 100) + '%';
+                tick.className = 'gauge-tick'; tick.style.left = (i / 20 * 100) + '%';
                 tick.style.borderLeft = "1px dotted rgba(255,255,255,0.4)"; 
-                tick.style.background = "transparent";
                 if(i === 4 || i === 16) { tick.style.borderLeft = "2px solid white"; tick.style.height = "100%"; tick.style.opacity = "1"; }
                 track.appendChild(tick);
             }
@@ -177,10 +171,7 @@
 
         function updateTimer(endTime) {
             clearInterval(timerInterval);
-            if (!endTime || endTime <= Date.now()) {
-                document.getElementById('bonus-timer').textContent = "00:00";
-                return;
-            }
+            if (!endTime || endTime <= Date.now()) { document.getElementById('bonus-timer').textContent = "00:00"; return; }
             timerInterval = setInterval(() => {
                 const now = Date.now();
                 const diff = Math.ceil((endTime - now) / 1000);
@@ -204,8 +195,7 @@
             if (match.bonusResults?.botCounters) {
                 match.bonusResults.botCounters.forEach((val, i) => {
                     let effectiveVal = val;
-                    if (val > 0) effectiveVal = val - 0.5;
-                    else if (val < 0) effectiveVal = val + 0.5;
+                    if (val > 0) effectiveVal = val - 0.5; else if (val < 0) effectiveVal = val + 0.5;
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
                     const cursor = document.getElementById(`cursor-${i+1}`);
@@ -244,15 +234,7 @@
             });
         });
 
-        socket.on('bonus-update', (data) => {
-            if (data.isSuccess) {
-                const box = document.getElementById('bonus-alert');
-                box.textContent = `✨ ${data.user} : ${data.type} sur Ordi ${data.input}`;
-                setTimeout(() => box.textContent = '', 4000);
-            }
-        });
-
-        // ⭐️ LOGIQUE ROUE DYNAMIQUE ⭐️
+        // ⭐️ LOGIQUE ROUE DYNAMIQUE (Taille de texte automatique) ⭐️
         let currentRotation = 0;
         const wheelColors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#34495e', '#d35400'];
 
@@ -265,26 +247,36 @@
             const sliceAngle = 360 / N;
             let gradientParts = [];
 
+            // Calculer la largeur max d'une part pour que le texte ne déborde pas
+            // Formule mathématique simplifiée du segment de cercle
+            let safeWidth = Math.max(30, Math.floor(2 * 105 * Math.sin(Math.PI / N)));
+
             for(let i=0; i<N; i++) {
-                // Background color (conic-gradient)
                 const color = wheelColors[i % wheelColors.length];
                 gradientParts.push(`${color} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`);
                 
-                // Label creation
                 const label = document.createElement('div');
                 label.className = 'wheel-label';
+                
+                // Définition de la boîte limite
+                label.style.width = safeWidth + 'px';
+                label.style.marginLeft = -(safeWidth / 2) + 'px'; // Centrage
+                label.style.height = '110px'; // Occupe la partie haute du rayon (125px max)
+                
                 label.textContent = choices[i];
-                
-                // Rotation et positionnement (milieu de la part)
-                label.style.transform = `translateX(-50%) rotate(${i * sliceAngle + sliceAngle / 2}deg)`;
-                
-                // Adaptation de la taille de la police (très longue part ou mots = petit texte)
-                let maxWordLength = Math.max(...choices[i].split(' ').map(w => w.length));
-                let fontSize = Math.min(1.1, 10 / maxWordLength);
-                if (N > 8) fontSize *= 0.8; // Plus de parts = texte plus petit
-                label.style.fontSize = `${fontSize}em`;
+                label.style.transform = `rotate(${i * sliceAngle + sliceAngle / 2}deg)`;
                 
                 wheel.appendChild(label);
+
+                // Réduction dynamique de la police
+                let fontSize = 24; 
+                label.style.fontSize = fontSize + 'px';
+                
+                // Tant que ça déborde de la boîte, on réduit (min 8px)
+                while ((label.scrollHeight > label.clientHeight || label.scrollWidth > label.clientWidth) && fontSize > 8) {
+                    fontSize -= 1;
+                    label.style.fontSize = fontSize + 'px';
+                }
             }
             wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
         });
@@ -296,14 +288,11 @@
             resultBox.textContent = "TOURNE...";
             resultBox.classList.remove('result-flash');
 
-            // Nombre de parts actuel calculé depuis les éléments HTML
             const N = document.querySelectorAll('.wheel-label').length;
             const sliceAngle = 360 / N;
-            
-            // L'angle cible pour pointer au centre de la part gagnante
             const targetAngle = 360 - (data.winnerIndex * sliceAngle + sliceAngle / 2);
             
-            const extraSpins = 5 * 360; // 5 tours de suspense
+            const extraSpins = 5 * 360; 
             const currentMod = currentRotation % 360;
             let diff = targetAngle - currentMod;
             if (diff <= 0) diff += 360; 
