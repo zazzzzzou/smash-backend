@@ -73,32 +73,37 @@
             transition: transform 6s cubic-bezier(0.15, 0.9, 0.1, 1);
         }
 
-        /* ⭐️ NOUVELLE STRATÉGIE: TEXTE RADIAL (Du centre vers le bord) ⭐️ */
+        /* ⭐️ BOÎTE LIMITE DE LA PART (Container) ⭐️ */
         .wheel-label {
             position: absolute;
             top: 50%;
             left: 50%;
-            /* La boîte de texte part du centre et va jusqu'au bord. (Rayon=125, on prend 100px pour laisser une petite marge) */
-            width: 100px;
-            height: 30px;
-            margin-top: -15px; /* Pour centrer verticalement la ligne de texte */
+            width: 105px; /* Distance du centre vers le bord */
+            height: 60px; /* Espace vertical généreux pour les retours à la ligne */
+            margin-top: -30px; /* Centrage sur l'axe Y */
             
-            transform-origin: left center; /* Le point de pivot est le bord gauche de la div (au centre de la roue) */
+            transform-origin: left center; /* Point de pivot au centre de la roue */
             
             display: flex;
             align-items: center;
-            justify-content: flex-end; /* Le texte est poussé vers la droite, donc vers le bord extérieur de la roue */
+            justify-content: flex-end; /* On pousse le texte vers l'extérieur de la roue */
             
-            padding-right: 5px; /* Évite de coller parfaitement au bord doré */
+            padding-right: 5px; /* Petite marge avec le bord doré */
             box-sizing: border-box;
             
+            overflow: hidden; /* On coupe ce qui dépasse après redimensionnement */
+        }
+
+        /* ⭐️ SOUS-BOÎTE POUR MESURER LE TEXTE (Nouvelle) ⭐️ */
+        .wheel-text {
+            display: inline-block;
+            text-align: right;
             color: white;
             font-weight: bold;
-            /* Outline prononcé pour que ça ressorte sur toutes les couleurs */
             text-shadow: 2px 2px 0px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-            
-            white-space: nowrap; /* Interdit de passer à la ligne */
-            overflow: hidden; /* Masque ce qui dépasse strictement */
+            white-space: normal; /* Autorise les retours à la ligne ! */
+            word-wrap: break-word;
+            line-height: 1.1;
         }
 
         .wheel-result-box {
@@ -270,26 +275,29 @@
                 const color = wheelColors[i % wheelColors.length];
                 gradientParts.push(`${color} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`);
                 
+                // Le container fixe de la part
                 const label = document.createElement('div');
                 label.className = 'wheel-label';
                 
-                // Formule pour pointer au milieu de la part (en compensant le 0deg CSS qui pointe vers la droite)
                 const angleCSS = -90 + (i * sliceAngle) + (sliceAngle / 2);
+                label.style.transform = `rotate(${angleCSS}deg) translateX(15px)`; // 15px pour se décaler un peu du point central strict
                 
-                // On translate légèrement de 20px pour ne pas que le texte s'entasse au point central (0,0)
-                label.style.transform = `rotate(${angleCSS}deg) translateX(20px)`;
-                label.textContent = choices[i];
+                // Le texte à l'intérieur
+                const span = document.createElement('span');
+                span.className = 'wheel-text';
+                span.textContent = choices[i];
+                label.appendChild(span);
                 
-                wheel.appendChild(label); // On attache l'élément au DOM AVANT de faire les calculs de dimension
+                wheel.appendChild(label); 
 
-                // ⭐️ Redimensionnement dynamique ultra-robuste
+                // ⭐️ MAGIE: On mesure le span par rapport au conteneur label ⭐️
                 let fontSize = 20; 
-                label.style.fontSize = fontSize + 'px';
+                span.style.fontSize = fontSize + 'px';
                 
-                // Dès que le texte dépasse les 100px (client width défini dans le CSS), on réduit.
-                while (label.scrollWidth > label.clientWidth && fontSize > 8) {
-                    fontSize -= 0.5; // On réduit doucement pour un rendu optimal
-                    label.style.fontSize = fontSize + 'px';
+                // On boucle tant que le span physique (offsetWidth/Height) déborde du conteneur parent (clientWidth/Height)
+                while ((span.offsetWidth > label.clientWidth || span.offsetHeight > label.clientHeight) && fontSize > 8) {
+                    fontSize -= 0.5; // On diminue finement
+                    span.style.fontSize = fontSize + 'px';
                 }
             }
             wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
