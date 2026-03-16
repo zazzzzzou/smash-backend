@@ -38,7 +38,10 @@ let lastPredictionData = null;
 let liveBotCounters = [0, 0, 0, 0]; 
 let currentBonusEndTime = 0; 
 let wheelChoices = ["Choix 1", "Choix 2", "Choix 3", "Choix 4"]; 
-let originalWheelChoices = [...wheelChoices]; // Mémoire de la soirée
+let originalWheelChoices = [...wheelChoices]; 
+
+// ⭐️ VERROU DE LA ROUE (Anti-Spam)
+let isSpinning = false;
 
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -126,6 +129,7 @@ function setupAdminRoutes(app, apiClient, io) {
         currentMatchId = last ? last.matchId + 1 : 1;
         liveBotCounters = [0, 0, 0, 0];
         currentBonusEndTime = 0;
+        isSpinning = false; // Reset sécurité
 
         currentMatch = new Match({
             matchId: currentMatchId, 
@@ -165,7 +169,6 @@ function setupAdminRoutes(app, apiClient, io) {
     // ⭐️ ROUTES POUR LA ROUE DES BONUS
     app.get('/api/wheel', (req, res) => res.json(wheelChoices));
 
-    // Edition Live par BLB
     app.post('/admin/update-wheel', bodyParser.json(), (req, res) => {
         if (req.body.choices && Array.isArray(req.body.choices)) {
             wheelChoices = req.body.choices;
@@ -174,27 +177,28 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    // Sauvegarde "Set pour la soirée"
     app.post('/admin/set-wheel-pool', bodyParser.json(), (req, res) => {
         if (req.body.choices && Array.isArray(req.body.choices)) {
             wheelChoices = req.body.choices;
-            originalWheelChoices = [...wheelChoices]; // On mémorise
+            originalWheelChoices = [...wheelChoices]; 
             io.emit('wheel-updated', wheelChoices);
         }
         res.send({ status: 'OK' });
     });
 
-    // Restauration "Fin de soirée"
     app.post('/admin/reset-wheel-pool', (req, res) => {
         wheelChoices = [...originalWheelChoices];
         io.emit('wheel-updated', wheelChoices);
-        io.emit('wheel-item-removed', wheelChoices); // Force le rafraîchissement de l'admin
+        io.emit('wheel-item-removed', wheelChoices); 
         res.send({ status: 'OK', choices: wheelChoices });
     });
 
     // Spin et Retrait
     app.post('/admin/spin-wheel', async (req, res) => {
         if (wheelChoices.length === 0) return res.status(400).send("Roue vide");
+        if (isSpinning) return res.status(400).send("Roue déjà en cours"); // ⭐️ Sécurité anti-spam
+        
+        isSpinning = true;
         const winnerIndex = Math.floor(Math.random() * wheelChoices.length);
         const winnerName = wheelChoices[winnerIndex];
         const durationMs = 6000;
@@ -205,7 +209,8 @@ function setupAdminRoutes(app, apiClient, io) {
         setTimeout(() => {
             wheelChoices.splice(winnerIndex, 1);
             io.emit('wheel-updated', wheelChoices);
-            io.emit('wheel-item-removed', wheelChoices); // Signale à Admin.html de se redessiner
+            io.emit('wheel-item-removed', wheelChoices); 
+            isSpinning = false; // ⭐️ Libération de la roue
         }, durationMs + 2000);
 
         res.send({ status: 'OK', winnerName });

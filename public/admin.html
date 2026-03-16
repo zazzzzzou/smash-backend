@@ -171,7 +171,6 @@
             });
         }
 
-        // Auto-save dynamique lors de la frappe (Debounce pour éviter le spam réseau)
         function handleWheelInput(index, val) {
             currentWheel[index] = val;
             clearTimeout(typingTimer);
@@ -193,7 +192,6 @@
             renderWheelInputs(); 
         }
 
-        // Mémoire de soirée
         async function setWheelPool() {
             if(confirm("Enregistrer cette liste comme base pour la soirée ?")) {
                 await fetch(`${apiBaseUrl}/admin/set-wheel-pool`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices: currentWheel }) });
@@ -212,10 +210,11 @@
             const btn = document.getElementById('btn-spin');
             btn.disabled = true; btn.textContent = "ROUE EN ROTATION...";
             await fetch(`${apiBaseUrl}/admin/spin-wheel`, { method: 'POST' });
-            setTimeout(() => { btn.disabled = false; btn.textContent = "LANCER LA ROUE"; }, 6000); 
+            
+            // ⭐️ FIX: On attend 8.5s (6s rotation + 2s affichage + 0.5s marge)
+            setTimeout(() => { btn.disabled = false; btn.textContent = "LANCER LA ROUE"; }, 8500); 
         }
 
-        // Quand le serveur retire un item gagnant ou reset, on redessine l'interface sans perte de focus
         socket.on('wheel-item-removed', (choices) => {
             currentWheel = choices;
             renderWheelInputs();
