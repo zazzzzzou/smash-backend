@@ -6,26 +6,24 @@
     <script src="/socket.io/socket.io.js"></script>
     <style>
         :root { --smash-yellow: #FFD700; --blb-blue: #2D3271; --bg-dark: rgba(0, 0, 0, 0.85); }
-        body { margin: 0; padding: 20px; background-color: transparent; font-family: 'Arial Black', sans-serif; color: white; overflow: hidden; text-transform: uppercase; }
         
-        /* Layout Principal */
-        .main-column {
-            display: flex;
-            flex-direction: column;
-            gap: 30px; /* Espace entre le haut (Tableau+Jauge) et le bas (Roue) */
-        }
-        
-        .top-row {
-            display: flex;
-            flex-direction: row;
-            align-items: flex-start;
-            gap: 20px;
+        /* ⭐️ AJOUT DU SCROLL VERTICAL ⭐️ */
+        body { 
+            margin: 0; padding: 20px; background-color: transparent; 
+            font-family: 'Arial Black', sans-serif; color: white; 
+            overflow-y: auto; overflow-x: hidden; 
+            text-transform: uppercase; 
         }
 
-        /* --- Tableau des Ordis --- */
+        /* Scrollbar personnalisée style Smash */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.5); }
+        ::-webkit-scrollbar-thumb { background: var(--smash-yellow); border-radius: 5px; }
+
+        .main-column { display: flex; flex-direction: column; gap: 30px; }
+        .top-row { display: flex; flex-direction: row; align-items: flex-start; gap: 20px; }
+
         #overlay-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; }
-        
-        /* --- Jauge de Level --- */
         #gauge-container { width: 380px; background: var(--bg-dark); padding: 20px; border: 4px solid var(--smash-yellow); box-shadow: 0 0 15px #000; position: relative; }
 
         .bot-row { margin-bottom: 20px; position: relative; padding: 5px; border: 2px solid transparent; transition: all 0.3s ease; }
@@ -45,10 +43,8 @@
         .steak-count { color: #51cf66; font-weight: bold; }
         #bonus-alert { margin-top: 15px; height: 25px; font-size: 1em; color: #00D1FF; text-align: center; font-weight: bold; font-style: italic; }
 
-        /* --- TIMER --- */
         #bonus-timer { text-align: center; font-size: 2em; color: var(--smash-yellow); margin-bottom: 15px; font-family: monospace; text-shadow: 2px 2px 0 #000; background: rgba(0,0,0,0.5); border: 2px solid #555; border-radius: 5px; width: 150px; margin-left: auto; margin-right: auto; }
 
-        /* --- STYLES JAUGE --- */
         .gauge-track { position: relative; width: 100%; height: 40px; background: linear-gradient(to right, #e74c3c 0%, #e74c3c 20%, #bdc3c7 20%, #bdc3c7 80%, #27ae60 80%, #27ae60 100%); border: 3px solid white; box-shadow: inset 0 0 10px #000; margin-top: 30px; margin-bottom: 30px; }
         .gauge-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,0.3); }
         .zone-label { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1.1em; color: white; text-align: center; font-weight: bold; -webkit-text-stroke: 1px black; text-shadow: 0 0 3px black; z-index: 5; white-space: nowrap; }
@@ -56,112 +52,58 @@
 
         .cursor { position: absolute; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; transform: translateX(-50%); transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 10; }
         .cursor-label { position: absolute; width: 20px; text-align: center; font-size: 12px; font-weight: bold; color: white; left: -10px; text-shadow: 1px 1px 0 #000; }
+        .cursor-top { border-top: 15px solid; top: -20px; } .cursor-top.p1 { border-top-color: #e74c3c; top: -25px; z-index: 12; } .cursor-top.p2 { border-top-color: #3498db; top: -15px; z-index: 11; } .cursor-top .cursor-label { top: -20px; }
+        .cursor-bottom { border-bottom: 15px solid; bottom: -20px; } .cursor-bottom.p3 { border-bottom-color: #f1c40f; bottom: -15px; z-index: 11; } .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; } .cursor-bottom .cursor-label { bottom: -20px; }
 
-        .cursor-top { border-top: 15px solid; top: -20px; }
-        .cursor-top.p1 { border-top-color: #e74c3c; top: -25px; z-index: 12; } .cursor-top.p2 { border-top-color: #3498db; top: -15px; z-index: 11; } .cursor-top .cursor-label { top: -20px; }
-        .cursor-bottom { border-bottom: 15px solid; bottom: -20px; }
-        .cursor-bottom.p3 { border-bottom-color: #f1c40f; bottom: -15px; z-index: 11; } .cursor-bottom.p4 { border-bottom-color: #9b59b6; bottom: -25px; z-index: 12; } .cursor-bottom .cursor-label { bottom: -20px; }
-
-        /* ⭐️ NOUVEAU: STYLES DE LA ROUE ⭐️ */
+        /* --- ROUE DYNAMIQUE --- */
         #wheel-wrapper {
-            width: 828px; /* Correspond à la largeur des 2 blocs du haut + gap */
-            background: var(--bg-dark);
-            padding: 20px;
-            border: 4px solid #9b59b6;
-            box-shadow: 0 0 15px #000;
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-around;
-            box-sizing: border-box;
+            width: 828px; 
+            background: var(--bg-dark); padding: 20px; border: 4px solid #9b59b6; box-shadow: 0 0 15px #000;
+            display: flex; flex-direction: row; align-items: center; justify-content: space-around; box-sizing: border-box;
         }
 
-        .wheel-box {
-            position: relative;
-            width: 250px;
-            height: 250px;
-        }
-
+        .wheel-box { position: relative; width: 250px; height: 250px; }
         .wheel-pointer {
-            position: absolute;
-            top: -15px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 0;
-            height: 0;
-            border-left: 15px solid transparent;
-            border-right: 15px solid transparent;
-            border-top: 30px solid #FFF;
-            z-index: 10;
-            filter: drop-shadow(0 4px 5px rgba(0,0,0,1));
+            position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 30px solid #FFF;
+            z-index: 10; filter: drop-shadow(0 4px 5px rgba(0,0,0,1));
         }
 
         .wheel {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 5px solid #FFD700;
-            box-shadow: 0 0 15px #000;
-            overflow: hidden;
-            position: relative;
-            /* Animation très tendue au lancement */
+            width: 100%; height: 100%; border-radius: 50%; border: 5px solid #FFD700; box-shadow: 0 0 15px #000;
+            overflow: hidden; position: relative;
             transition: transform 6s cubic-bezier(0.15, 0.9, 0.1, 1);
-            
-            /* Les 6 parts colorées (60 degrés chacune) */
-            background: conic-gradient(
-                #e74c3c 0deg 60deg,
-                #3498db 60deg 120deg,
-                #f1c40f 120deg 180deg,
-                #2ecc71 180deg 240deg,
-                #9b59b6 240deg 300deg,
-                #e67e22 300deg 360deg
-            );
         }
 
-        /* Les textes dans la roue */
+        /* Classes générées dynamiquement par le JS */
         .wheel-label {
             position: absolute;
-            top: 5px;
+            top: 5px; /* Décolle légèrement du bord */
             left: 50%;
-            transform-origin: 50% 120px; /* Radius (125) - Padding (5) */
+            width: 80px;
+            height: 115px; /* Rayon (125) - Marge (10) */
+            transform-origin: bottom center;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            text-align: center;
             color: white;
-            font-size: 1.1em;
             font-weight: bold;
             text-shadow: 2px 2px 2px #000;
+            word-wrap: break-word;
         }
-
-        /* On tourne le texte pour qu'il soit centré au milieu de sa part (30 deg, 90 deg, etc.) */
-        .lbl-0 { transform: translateX(-50%) rotate(30deg); }
-        .lbl-1 { transform: translateX(-50%) rotate(90deg); }
-        .lbl-2 { transform: translateX(-50%) rotate(150deg); }
-        .lbl-3 { transform: translateX(-50%) rotate(210deg); }
-        .lbl-4 { transform: translateX(-50%) rotate(270deg); }
-        .lbl-5 { transform: translateX(-50%) rotate(330deg); }
 
         .wheel-result-box {
-            background: #111;
-            border: 4px solid #9b59b6;
-            padding: 20px;
-            width: 350px;
-            text-align: center;
-            font-size: 1.8em;
-            color: #FFD700;
-            box-shadow: inset 0 0 10px #000;
+            background: #111; border: 4px solid #9b59b6; padding: 20px; width: 350px;
+            text-align: center; font-size: 1.8em; color: #FFD700; box-shadow: inset 0 0 10px #000;
         }
-
-        .result-flash {
-            animation: jackpot 0.5s ease-in-out 4 alternate;
-        }
-        @keyframes jackpot {
-            from { background: #111; color: #FFD700; transform: scale(1); }
-            to { background: #FFD700; color: #000; transform: scale(1.1); }
-        }
+        .result-flash { animation: jackpot 0.5s ease-in-out 4 alternate; }
+        @keyframes jackpot { from { background: #111; color: #FFD700; transform: scale(1); } to { background: #FFD700; color: #000; transform: scale(1.1); } }
     </style>
 </head>
 <body>
     
     <div class="main-column">
-        
         <div class="top-row">
             <div id="overlay-container">
                 <div id="bots-container"></div>
@@ -187,26 +129,18 @@
             <div class="wheel-box">
                 <div class="wheel-pointer"></div>
                 <div class="wheel" id="the-wheel">
-                    <div class="wheel-label lbl-0">Choix 1</div>
-                    <div class="wheel-label lbl-1">Choix 2</div>
-                    <div class="wheel-label lbl-2">Choix 3</div>
-                    <div class="wheel-label lbl-3">Choix 4</div>
-                    <div class="wheel-label lbl-4">Choix 5</div>
-                    <div class="wheel-label lbl-5">Choix 6</div>
-                </div>
+                    </div>
             </div>
             <div class="wheel-result-box" id="wheel-result">
                 EN ATTENTE...
             </div>
         </div>
-
     </div>
 
     <script>
         const socket = io();
         let timerInterval;
         
-        // --- Init ---
         function initRows() {
             const container = document.getElementById('bots-container');
             container.innerHTML = '';
@@ -215,10 +149,7 @@
                     <div id="bot-row-${i+1}" class="bot-row">
                         <div class="bot-header">
                             <span class="bot-name">Ordi ${i+1}</span>
-                            <span class="level-badge">
-                                <span class="winner-star">⭐</span>
-                                <span>LVL <span class="lvl-val">8</span></span>
-                            </span>
+                            <span class="level-badge"><span class="winner-star">⭐</span><span>LVL <span class="lvl-val">8</span></span></span>
                         </div>
                         <div class="progress-bg"><div class="progress-bar"></div></div>
                         <div class="stats-line"><span class="perc-val">0%</span><span class="steak-count"><span class="pts-val">0</span> steaks</span></div>
@@ -235,18 +166,11 @@
                 tick.style.left = (i / 20 * 100) + '%';
                 tick.style.borderLeft = "1px dotted rgba(255,255,255,0.4)"; 
                 tick.style.background = "transparent";
-                if(i === 4 || i === 16) {
-                    tick.style.borderLeft = "2px solid white";
-                    tick.style.height = "100%";
-                    tick.style.opacity = "1";
-                }
+                if(i === 4 || i === 16) { tick.style.borderLeft = "2px solid white"; tick.style.height = "100%"; tick.style.opacity = "1"; }
                 track.appendChild(tick);
             }
             const centerTick = document.createElement('div');
-            centerTick.className = 'gauge-tick';
-            centerTick.style.left = '50%';
-            centerTick.style.borderLeft = "2px dashed white";
-            centerTick.style.height = "100%";
+            centerTick.className = 'gauge-tick'; centerTick.style.left = '50%'; centerTick.style.borderLeft = "2px dashed white"; centerTick.style.height = "100%";
             track.appendChild(centerTick);
         }
         initGaugeTicks();
@@ -260,10 +184,8 @@
             timerInterval = setInterval(() => {
                 const now = Date.now();
                 const diff = Math.ceil((endTime - now) / 1000);
-                if (diff <= 0) {
-                    document.getElementById('bonus-timer').textContent = "00:00";
-                    clearInterval(timerInterval);
-                } else {
+                if (diff <= 0) { document.getElementById('bonus-timer').textContent = "00:00"; clearInterval(timerInterval); } 
+                else {
                     const m = Math.floor(diff / 60).toString().padStart(2, '0');
                     const s = (diff % 60).toString().padStart(2, '0');
                     document.getElementById('bonus-timer').textContent = `${m}:${s}`;
@@ -271,7 +193,6 @@
             }, 1000);
         }
 
-        // --- Sockets ---
         socket.on('game-status', (match) => {
             if (match.bonusResults?.botLevels) {
                 match.bonusResults.botLevels.forEach((lvl, i) => {
@@ -285,34 +206,24 @@
                     let effectiveVal = val;
                     if (val > 0) effectiveVal = val - 0.5;
                     else if (val < 0) effectiveVal = val + 0.5;
-                    
                     let percent = (effectiveVal + 10) / 20 * 100;
                     percent = Math.max(0, Math.min(100, percent));
-                    
                     const cursor = document.getElementById(`cursor-${i+1}`);
                     if(cursor) cursor.style.left = percent + '%';
                 });
             }
 
-            if (match.status === 'BONUS_ACTIVE') {
-                updateTimer(match.bonusEndTime);
-            } else {
-                clearInterval(timerInterval);
-                document.getElementById('bonus-timer').textContent = "00:00";
-            }
+            if (match.status === 'BONUS_ACTIVE') updateTimer(match.bonusEndTime);
+            else { clearInterval(timerInterval); document.getElementById('bonus-timer').textContent = "00:00"; }
 
             document.querySelectorAll('.bot-row').forEach(r => r.classList.remove('is-winner'));
-            if (match.status === 'CLOSED' && match.winnerBot) {
-                document.getElementById(`bot-row-${match.winnerBot}`).classList.add('is-winner');
-            }
+            if (match.status === 'CLOSED' && match.winnerBot) document.getElementById(`bot-row-${match.winnerBot}`).classList.add('is-winner');
 
             if (match.status === 'AWAITING_PREDICTION') {
                 document.querySelectorAll('.progress-bar').forEach(b => b.style.width = '0%');
                 document.querySelectorAll('.pts-val, .perc-val').forEach(v => v.textContent = '0');
                 for(let i=1; i<=4; i++) document.getElementById(`cursor-${i}`).style.left = '50%';
                 document.getElementById('bonus-timer').textContent = "00:00";
-                
-                // Reset Roue
                 document.getElementById('wheel-result').textContent = "EN ATTENTE...";
                 document.getElementById('wheel-result').classList.remove('result-flash');
             }
@@ -341,9 +252,43 @@
             }
         });
 
-        // ⭐️ ANIMATION DE LA ROUE ⭐️
+        // ⭐️ LOGIQUE ROUE DYNAMIQUE ⭐️
         let currentRotation = 0;
-        
+        const wheelColors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#34495e', '#d35400'];
+
+        socket.on('wheel-updated', (choices) => {
+            const wheel = document.getElementById('the-wheel');
+            wheel.innerHTML = '';
+            if (!choices || choices.length === 0) return;
+            
+            const N = choices.length;
+            const sliceAngle = 360 / N;
+            let gradientParts = [];
+
+            for(let i=0; i<N; i++) {
+                // Background color (conic-gradient)
+                const color = wheelColors[i % wheelColors.length];
+                gradientParts.push(`${color} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`);
+                
+                // Label creation
+                const label = document.createElement('div');
+                label.className = 'wheel-label';
+                label.textContent = choices[i];
+                
+                // Rotation et positionnement (milieu de la part)
+                label.style.transform = `translateX(-50%) rotate(${i * sliceAngle + sliceAngle / 2}deg)`;
+                
+                // Adaptation de la taille de la police (très longue part ou mots = petit texte)
+                let maxWordLength = Math.max(...choices[i].split(' ').map(w => w.length));
+                let fontSize = Math.min(1.1, 10 / maxWordLength);
+                if (N > 8) fontSize *= 0.8; // Plus de parts = texte plus petit
+                label.style.fontSize = `${fontSize}em`;
+                
+                wheel.appendChild(label);
+            }
+            wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
+        });
+
         socket.on('spin-wheel', (data) => {
             const wheel = document.getElementById('the-wheel');
             const resultBox = document.getElementById('wheel-result');
@@ -351,22 +296,21 @@
             resultBox.textContent = "TOURNE...";
             resultBox.classList.remove('result-flash');
 
-            // 6 parts = 60 degrés par part.
-            const sliceAngle = 60;
-            // Pour tomber sur l'index X (qui s'étale de X*60 à X*60+60), on vise le milieu de sa part (X*60 + 30).
-            // Le pointeur est en haut à 12h (0 deg de l'écran). Pour amener cet angle sous le pointeur, on doit pivoter la roue de (360 - angle).
-            const targetAngle = 360 - (data.winnerIndex * sliceAngle + 30);
+            // Nombre de parts actuel calculé depuis les éléments HTML
+            const N = document.querySelectorAll('.wheel-label').length;
+            const sliceAngle = 360 / N;
             
-            // On ajoute 5 tours complets (1800 degrés) de suspense + on compense la rotation actuelle
-            const extraSpins = 5 * 360;
+            // L'angle cible pour pointer au centre de la part gagnante
+            const targetAngle = 360 - (data.winnerIndex * sliceAngle + sliceAngle / 2);
+            
+            const extraSpins = 5 * 360; // 5 tours de suspense
             const currentMod = currentRotation % 360;
             let diff = targetAngle - currentMod;
-            if (diff <= 0) diff += 360; // S'assurer de toujours avancer
+            if (diff <= 0) diff += 360; 
 
             currentRotation += extraSpins + diff;
             wheel.style.transform = `rotate(${currentRotation}deg)`;
 
-            // A la fin de l'animation (6s)
             setTimeout(() => {
                 resultBox.textContent = `🎉 ${data.winnerName} ! 🎉`;
                 resultBox.classList.add('result-flash');

@@ -29,9 +29,6 @@ const NEW_ALL_REWARDS = [
     { name: process.env.REWARD_NAME_CHOIX_PERSO, key: 'CHOIX_PERSO' }
 ];
 
-// ⭐️ CHOIX DE LA ROUE (Saison 2)
-const WHEEL_CHOICES = ["Choix 1", "Choix 2", "Choix 3", "Choix 4", "Choix 5", "Choix 6"];
-
 let currentMatchId = 0; 
 let currentMatch = null; 
 let currentPredictionId = null; 
@@ -39,7 +36,8 @@ let lastPredictionData = null;
 
 // ⭐️ VARIABLES TEMPS RÉEL
 let liveBotCounters = [0, 0, 0, 0]; 
-let currentBonusEndTime = 0; // Pour le timer
+let currentBonusEndTime = 0; 
+let wheelChoices = ["Choix 1", "Choix 2", "Choix 3", "Choix 4", "Choix 5", "Choix 6"]; // Roue par défaut
 
 const REWARD_IDS = {}; 
 const GAME_PREDICTION_TITLE_MARKER = process.env.GAME_PREDICTION_TITLE_MARKER || "[SMASH BET]"; 
@@ -172,11 +170,22 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    // ⭐️ NOUVELLE ROUTE POUR LA ROUE
+    // ⭐️ ROUTES POUR LA ROUE DES BONUS
+    app.get('/api/wheel', (req, res) => res.json(wheelChoices));
+
+    app.post('/admin/update-wheel', bodyParser.json(), (req, res) => {
+        if (req.body.choices && Array.isArray(req.body.choices)) {
+            wheelChoices = req.body.choices;
+            io.emit('wheel-updated', wheelChoices); // Met à jour l'overlay en direct
+        }
+        res.send({ status: 'OK' });
+    });
+
     app.post('/admin/spin-wheel', async (req, res) => {
-        const winnerIndex = Math.floor(Math.random() * WHEEL_CHOICES.length);
-        const winnerName = WHEEL_CHOICES[winnerIndex];
-        const durationMs = 6000; // 6 secondes de suspense
+        if (wheelChoices.length === 0) return res.status(400).send("Roue vide");
+        const winnerIndex = Math.floor(Math.random() * wheelChoices.length);
+        const winnerName = wheelChoices[winnerIndex];
+        const durationMs = 6000;
         
         io.emit('spin-wheel', { winnerIndex, winnerName, duration: durationMs });
         res.send({ status: 'OK', winnerName });
@@ -345,6 +354,7 @@ async function main() {
     io.on('connection', (socket) => {
         if (currentMatch) emitGameStatus(socket, currentMatch);
         if (lastPredictionData) socket.emit('prediction-progress', lastPredictionData);
+        socket.emit('wheel-updated', wheelChoices); // Envoie la config de la roue à la connexion
     });
 
     await listener.markAsReady();

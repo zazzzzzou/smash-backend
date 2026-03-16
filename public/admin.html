@@ -22,6 +22,12 @@
         #log-container { height: 250px; overflow-y: auto; background: #000; color: #00FF00; padding: 15px; font-family: 'Courier New', monospace; border: 3px solid var(--blb-blue); text-transform: none; }
         .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
         .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
+        
+        /* Styles spécifiques pour l'éditeur de roue */
+        .wheel-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .wheel-input { flex-grow: 1; background: #000; color: white; border: 2px solid #9b59b6; padding: 10px; font-family: 'Arial Black'; font-size: 1em; }
+        .btn-small { padding: 10px 15px; font-size: 1em; margin: 0; }
+        .btn-red { background: #e74c3c; color: white; border-color: #c0392b; }
     </style>
 </head>
 <body>
@@ -43,8 +49,15 @@
     </div>
 
     <div class="card" style="border-color: #9b59b6;">
-        <h2 style="color: #9b59b6;">🎲 Roue de la Destinée</h2>
-        <button id="btn-spin" onclick="spinWheel()" style="background: #9b59b6; color: white;">Lancer la Roue</button>
+        <h2 style="color: #9b59b6;">🎲 Roue des Bonus</h2>
+        
+        <div style="background: #222; padding: 15px; border: 2px solid #555; margin-bottom: 15px;">
+            <div id="wheel-config-container">
+                </div>
+            <button class="btn-small" onclick="addWheelChoice()" style="margin-top: 10px;">+ Ajouter une part</button>
+        </div>
+
+        <button id="btn-spin" onclick="spinWheel()" style="background: #9b59b6; color: white; width: 100%; font-size: 1.5em; padding: 20px;">LANCER LA ROUE</button>
     </div>
 
     <div class="card">
@@ -132,18 +145,58 @@
         async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
         async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
         
-        // ⭐️ NOUVEAU: Appel de la roue
+        // --- LOGIQUE ROUE DES BONUS ---
+        let currentWheel = [];
+
+        async function loadWheelConfig() {
+            const res = await fetch(`${apiBaseUrl}/api/wheel`);
+            currentWheel = await res.json();
+            renderWheelInputs();
+        }
+
+        function renderWheelInputs() {
+            const container = document.getElementById('wheel-config-container');
+            container.innerHTML = '';
+            currentWheel.forEach((choice, i) => {
+                container.innerHTML += `
+                    <div class="wheel-input-row">
+                        <input type="text" class="wheel-input" value="${choice}" onchange="updateChoice(${i}, this.value)">
+                        <button class="btn-small btn-red" onclick="removeChoice(${i})">X</button>
+                    </div>
+                `;
+            });
+        }
+
+        async function saveWheelConfig() {
+            await fetch(`${apiBaseUrl}/admin/update-wheel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ choices: currentWheel })
+            });
+        }
+
+        function updateChoice(index, val) { currentWheel[index] = val; saveWheelConfig(); }
+        function addWheelChoice() { currentWheel.push(`Nouveau Bonus`); saveWheelConfig(); renderWheelInputs(); }
+        function removeChoice(index) { 
+            if(currentWheel.length <= 2) return alert("Il faut au minimum 2 parts dans la roue !");
+            currentWheel.splice(index, 1); 
+            saveWheelConfig(); 
+            renderWheelInputs(); 
+        }
+
         async function spinWheel() {
             const btn = document.getElementById('btn-spin');
             btn.disabled = true;
-            btn.textContent = "Roue en rotation...";
+            btn.textContent = "ROUE EN ROTATION...";
             await fetch(`${apiBaseUrl}/admin/spin-wheel`, { method: 'POST' });
             setTimeout(() => {
                 btn.disabled = false;
-                btn.textContent = "Lancer la Roue";
-            }, 6000); // Réactivation après 6 secondes
+                btn.textContent = "LANCER LA ROUE";
+            }, 6000); 
         }
 
+        // Init
+        loadWheelConfig();
         socket.on('game-status', updateUI);
         socket.on('bonus-update', (data) => {
             const type = data.type || "Bonus";
