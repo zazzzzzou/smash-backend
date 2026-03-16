@@ -249,7 +249,7 @@
 
             // Calculer la largeur max d'une part pour que le texte ne déborde pas
             // Formule mathématique simplifiée du segment de cercle
-            let safeWidth = Math.max(30, Math.floor(2 * 105 * Math.sin(Math.PI / N)));
+            let safeWidth = Math.max(20, Math.floor(1.5 * 105 * Math.sin(Math.PI / N)));
 
             for(let i=0; i<N; i++) {
                 const color = wheelColors[i % wheelColors.length];
@@ -261,7 +261,7 @@
                 // Définition de la boîte limite
                 label.style.width = safeWidth + 'px';
                 label.style.marginLeft = -(safeWidth / 2) + 'px'; // Centrage
-                label.style.height = '110px'; // Occupe la partie haute du rayon (125px max)
+                label.style.height = '90px'; // Occupe la partie haute du rayon (125px max)
                 
                 label.textContent = choices[i];
                 label.style.transform = `rotate(${i * sliceAngle + sliceAngle / 2}deg)`;
