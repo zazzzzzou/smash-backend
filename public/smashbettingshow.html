@@ -29,13 +29,30 @@
         th { background-color: #000; color: var(--smash-yellow); padding: 12px; font-size: 0.9em; border-bottom: 3px solid var(--smash-yellow); }
         td { padding: 15px; background: #333; border-top: 2px solid #555; border-bottom: 2px solid #000; font-size: 1.1em; }
 
-        .rank-1 td { background: linear-gradient(90deg, #FFD700, #BF953F) !important; color: black !important; font-size: 1.3em; text-shadow: none; border-color: white; }
-        .rank-2 td { background: linear-gradient(90deg, #E6E6E6, #999) !important; color: black !important; border-color: white; }
-        .rank-3 td { background: linear-gradient(90deg, #CD7F32, #8C5233) !important; color: white !important; border-color: #5d3a24; }
-
-        .user-cell { font-weight: bold; letter-spacing: 1px; }
-        .score-cell { font-size: 1.3em; color: var(--smash-yellow); text-align: right !important; }
+        /* Styles de base pour les cellules */
+        .user-cell { font-weight: bold; letter-spacing: 1px; color: white; }
+        .score-cell { font-size: 1.3em; color: var(--smash-yellow); text-align: right !important; text-shadow: 1px 1px 2px #000; }
         
+        /* Styles spécifiques aux Rangs (Podium) */
+        .rank-1 td { background: linear-gradient(90deg, #FFD700, #BF953F) !important; font-size: 1.3em; border-color: white; }
+        .rank-2 td { background: linear-gradient(90deg, #E6E6E6, #999) !important; border-color: white; }
+        .rank-3 td { background: linear-gradient(90deg, #CD7F32, #8C5233) !important; border-color: #5d3a24; }
+        .rank-3 .user-cell, .rank-3 .score-cell { color: white !important; text-shadow: 1px 1px 2px #000 !important; }
+
+        /* ⭐️ CORRECTION CONTRASTE : Force le noir pour les Rangs 1 (Or) et 2 (Argent) ⭐️ */
+        .rank-1 .user-cell, .rank-2 .user-cell,
+        .rank-1 .score-cell, .rank-2 .score-cell {
+            color: black !important;
+            text-shadow: none !important;
+            font-weight: 900;
+        }
+
+        /* ⭐️ CORRECTION EMOJIS : Ajoute une ombre noire très nette sur l'Or et l'Argent pour les étoiles/trophées ⭐️ */
+        .rank-1 .blink-star, .rank-2 .blink-star,
+        .rank-1 .score-cell, .rank-2 .score-cell {
+            filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8)) drop-shadow(-1px -1px 0px rgba(0,0,0,0.5)); 
+        }
+
         /* ⭐️ Étoiles Clignotantes (Victoires) */
         .hof-stars { margin-left: 10px; display: inline-block; }
         .blink-star {
@@ -160,6 +177,8 @@
                 data.forEach((item, i) => {
                     const row = body.insertRow(); applyRankClass(row, i+1);
                     row.insertCell().innerHTML = `<strong>${i+1}</strong>`;
+                    
+                    // La couleur jaune n'est forcé que si ce n'est PAS rank 1 ou 2 (qui écrasent la couleur du parent)
                     row.insertCell().innerHTML = `<span class="user-cell" style="color:var(--smash-yellow)">${item.username}</span>`;
                     row.insertCell().innerHTML = `<span class="score-cell">${item.seasonWins} 🏆</span>`;
                 });
