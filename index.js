@@ -35,7 +35,6 @@ const NEW_ALL_REWARDS = [
 
 let currentMatchId = 0; 
 let currentMatch = null; 
-let currentPredictionId = null; 
 let lastPredictionData = null; 
 
 // --- Variables Temps Réel ---
@@ -183,7 +182,6 @@ function setupAdminRoutes(app, apiClient, io) {
         if (req.body.choices && Array.isArray(req.body.choices)) {
             wheelChoices = req.body.choices;
             originalWheelChoices = [...wheelChoices]; 
-            // Sauvegarde DB pour résister aux redémarrages de Render
             await AppConfig.findOneAndUpdate({ key: 'wheel' }, { wheelChoices: originalWheelChoices }, { upsert: true });
             io.emit('wheel-updated', wheelChoices);
         }
@@ -225,7 +223,7 @@ function setupAdminRoutes(app, apiClient, io) {
             await User.findOneAndUpdate(
                 { username: new RegExp(`^${username}$`, 'i') }, 
                 { $set: { seasonWins: parseInt(wins), username: username } },
-                { upsert: true, strict: false } // strict: false permet d'ajouter seasonWins sans modifier models.js
+                { upsert: true, strict: false } 
             );
             res.send({ status: 'OK' });
         } catch(e) { res.status(500).send(e.message); }
@@ -310,19 +308,23 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 
     listener.onChannelPredictionBegin(channelUserId, async (event) => {
         if (event.title.startsWith(GAME_PREDICTION_TITLE_MARKER) && currentMatch?.status === 'AWAITING_PREDICTION') {
-            currentMatch.twitchPredictionId = event.id; currentMatch.status = 'BETTING';
-            await currentMatch.save(); emitGameStatus(io, currentMatch);
+            currentMatch.twitchPredictionId = event.id; 
+            currentMatch.status = 'BETTING';
+            await currentMatch.save(); 
+            emitGameStatus(io, currentMatch);
         }
     });
 
     listener.onChannelPredictionProgress(channelUserId, async (event) => {
+        // ⭐️ FIX: Vérification stricte de la prédiction liée au Smash Bet
+        if (!currentMatch || currentMatch.twitchPredictionId !== event.id) return;
+
         lastPredictionData = event.outcomes.map(o => ({ title: o.title, channelPoints: o.channelPoints, users: o.users }));
         io.emit('prediction-progress', lastPredictionData);
         if (event.outcomes) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
-                        // Enregistrement des participants
                         await User.findOneAndUpdate(
                             { twitchId: predictor.userId }, 
                             { $setOnInsert: { username: predictor.userName, s2Points: 0, totalPoints: 0, bonusUsedCount: 0 } }, 
@@ -335,7 +337,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     });
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
-        if (currentMatch && event.status.toLowerCase() === 'resolved') {
+        // ⭐️ FIX: Vérification stricte de la prédiction liée au Smash Bet
+        if (currentMatch && currentMatch.twitchPredictionId === event.id && event.status.toLowerCase() === 'resolved') {
             try {
                 const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
                 if (prediction.outcomes) {
@@ -351,7 +354,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 if (winningOutcome) {
                     const winners = winningOutcome.topPredictors || []; 
                     for (const w of winners) { 
-                        // ⭐️ SAISON 2 : On incrémente s2Points
                         await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { s2Points: 1 } }, { strict: false } ); 
                     }
                     const winnerTitle = winningOutcome.title.toLowerCase();
@@ -359,7 +361,8 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
                 }
                 currentMatch.status = 'CLOSED';
-                await currentMatch.save(); emitGameStatus(io, currentMatch);
+                await currentMatch.save(); 
+                emitGameStatus(io, currentMatch);
             } catch (e) { console.error("Erreur clôture:", e.message); }
         }
     });
@@ -379,7 +382,7 @@ async function main() {
 
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
     if (lastMatch) { 
-        currentMatch = lastMatch; currentMatchId = lastMatch.matchId; currentPredictionId = lastMatch.twitchPredictionId;
+        currentMatch = lastMatch; currentMatchId = lastMatch.matchId; 
         if(currentMatch.bonusResults && currentMatch.bonusResults.botCounters) liveBotCounters = currentMatch.bonusResults.botCounters;
     }
     const app = express(); const httpServer = createServer(app); const io = new Server(httpServer);
