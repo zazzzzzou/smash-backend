@@ -23,7 +23,6 @@
         .log-success { color: #51cf66; border-left: 4px solid #51cf66; padding-left: 10px; margin-bottom: 5px; }
         .log-fail { color: #ff6b6b; border-left: 4px solid #ff6b6b; padding-left: 10px; margin-bottom: 5px; }
         
-        /* Éditeur Roue */
         .wheel-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
         .wheel-input { flex-grow: 1; background: #000; color: white; border: 2px solid #9b59b6; padding: 10px; font-family: 'Arial Black'; font-size: 1em; }
         .btn-small { padding: 10px 15px; font-size: 1em; margin: 0; }
@@ -45,6 +44,15 @@
         </div>
         <div style="margin-top: 20px;">
             <button id="btn-close-match" onclick="closeMatch()" style="background:#c0392b" disabled>Clôturer Match</button>
+        </div>
+    </div>
+
+    <div class="card" style="border-color: #f1c40f;">
+        <h2 style="color: #f1c40f;">🏆 Gestion Hall of Fame (Victoires Saisons)</h2>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <input type="text" id="hof-username" placeholder="Pseudo exact" class="wheel-input" style="border-color: #f1c40f;">
+            <input type="number" id="hof-wins" placeholder="Victoires" value="1" class="wheel-input" style="width:100px; border-color: #f1c40f;">
+            <button class="btn-small" style="background: #f1c40f; color: black; border-color:#d4ac0d;" onclick="updateHoF()">Définir</button>
         </div>
     </div>
 
@@ -148,6 +156,19 @@
         async function stopBonusPhase() { fetch(`${apiBaseUrl}/admin/stop-bonus`, { method: 'POST' }); }
         async function closeMatch() { if(confirm("Clôturer ?")) fetch(`${apiBaseUrl}/admin/close-match`, { method: 'POST' }); }
         
+        // --- HALL OF FAME ---
+        async function updateHoF() {
+            const username = document.getElementById('hof-username').value.trim();
+            const wins = document.getElementById('hof-wins').value;
+            if(!username) return alert("Indique un pseudo !");
+            
+            await fetch(`${apiBaseUrl}/admin/update-hof`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, wins })
+            });
+            alert(`Mis à jour : ${username} -> ${wins} victoire(s)`);
+        }
+
         // --- LOGIQUE ROUE DES BONUS ---
         let currentWheel = [];
         let typingTimer;
@@ -211,7 +232,6 @@
             btn.disabled = true; btn.textContent = "ROUE EN ROTATION...";
             await fetch(`${apiBaseUrl}/admin/spin-wheel`, { method: 'POST' });
             
-            // ⭐️ FIX: On attend 8.5s (6s rotation + 2s affichage + 0.5s marge)
             setTimeout(() => { btn.disabled = false; btn.textContent = "LANCER LA ROUE"; }, 8500); 
         }
 

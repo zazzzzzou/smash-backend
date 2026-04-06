@@ -14,6 +14,10 @@ const fetch = require('node-fetch');
 const connectDB = require('./db'); 
 const { User, Match, BonusLog } = require('./models');
 
+// ⭐️ Modèle de configuration pour sauvegarder la roue en base de données (Persistance Render)
+const ConfigSchema = new mongoose.Schema({ key: String, wheelChoices: [String] }, { strict: false });
+const AppConfig = mongoose.models.AppConfig || mongoose.model('AppConfig', ConfigSchema);
+
 // --- Configuration ---
 const clientId = process.env.TWITCH_CLIENT_ID;
 const clientSecret = process.env.TWITCH_CLIENT_SECRET;
@@ -34,13 +38,11 @@ let currentMatch = null;
 let currentPredictionId = null; 
 let lastPredictionData = null; 
 
-// ⭐️ VARIABLES TEMPS RÉEL
+// --- Variables Temps Réel ---
 let liveBotCounters = [0, 0, 0, 0]; 
 let currentBonusEndTime = 0; 
 let wheelChoices = ["Choix 1", "Choix 2", "Choix 3", "Choix 4"]; 
 let originalWheelChoices = [...wheelChoices]; 
-
-// ⭐️ VERROU DE LA ROUE (Anti-Spam)
 let isSpinning = false;
 
 const REWARD_IDS = {}; 
@@ -129,7 +131,7 @@ function setupAdminRoutes(app, apiClient, io) {
         currentMatchId = last ? last.matchId + 1 : 1;
         liveBotCounters = [0, 0, 0, 0];
         currentBonusEndTime = 0;
-        isSpinning = false; // Reset sécurité
+        isSpinning = false; 
 
         currentMatch = new Match({
             matchId: currentMatchId, 
@@ -166,7 +168,7 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    // ⭐️ ROUTES POUR LA ROUE DES BONUS
+    // --- ROUTES ROUE DES BONUS ---
     app.get('/api/wheel', (req, res) => res.json(wheelChoices));
 
     app.post('/admin/update-wheel', bodyParser.json(), (req, res) => {
@@ -177,10 +179,12 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    app.post('/admin/set-wheel-pool', bodyParser.json(), (req, res) => {
+    app.post('/admin/set-wheel-pool', bodyParser.json(), async (req, res) => {
         if (req.body.choices && Array.isArray(req.body.choices)) {
             wheelChoices = req.body.choices;
             originalWheelChoices = [...wheelChoices]; 
+            // Sauvegarde DB pour résister aux redémarrages de Render
+            await AppConfig.findOneAndUpdate({ key: 'wheel' }, { wheelChoices: originalWheelChoices }, { upsert: true });
             io.emit('wheel-updated', wheelChoices);
         }
         res.send({ status: 'OK' });
@@ -193,10 +197,9 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK', choices: wheelChoices });
     });
 
-    // Spin et Retrait
     app.post('/admin/spin-wheel', async (req, res) => {
         if (wheelChoices.length === 0) return res.status(400).send("Roue vide");
-        if (isSpinning) return res.status(400).send("Roue déjà en cours"); // ⭐️ Sécurité anti-spam
+        if (isSpinning) return res.status(400).send("Roue déjà en cours"); 
         
         isSpinning = true;
         const winnerIndex = Math.floor(Math.random() * wheelChoices.length);
@@ -205,19 +208,45 @@ function setupAdminRoutes(app, apiClient, io) {
         
         io.emit('spin-wheel', { winnerIndex, winnerName, duration: durationMs });
         
-        // Retrait automatique 2 secondes APRÈS la fin de l'animation
         setTimeout(() => {
             wheelChoices.splice(winnerIndex, 1);
             io.emit('wheel-updated', wheelChoices);
             io.emit('wheel-item-removed', wheelChoices); 
-            isSpinning = false; // ⭐️ Libération de la roue
+            isSpinning = false; 
         }, durationMs + 2000);
 
         res.send({ status: 'OK', winnerName });
     });
 
-    app.get('/api/classement/points', async (req, res) => { try { res.json(await User.find({}).sort({ totalPoints: -1 }).limit(20).select('username totalPoints -_id')); } catch (e) { res.status(500).send(e.message); } });
-    app.get('/api/classement/bonus', async (req, res) => { try { res.json(await User.find({}).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount -_id')); } catch (e) { res.status(500).send(e.message); } });
+    // --- ROUTES CLASSEMENT & HALL OF FAME ---
+    app.post('/admin/update-hof', bodyParser.json(), async (req, res) => {
+        try {
+            const { username, wins } = req.body;
+            await User.findOneAndUpdate(
+                { username: new RegExp(`^${username}$`, 'i') }, 
+                { $set: { seasonWins: parseInt(wins), username: username } },
+                { upsert: true, strict: false } // strict: false permet d'ajouter seasonWins sans modifier models.js
+            );
+            res.send({ status: 'OK' });
+        } catch(e) { res.status(500).send(e.message); }
+    });
+
+    app.get('/api/classement/points/s1', async (req, res) => { 
+        try { res.json(await User.find({ totalPoints: { $gt: 0 } }).sort({ totalPoints: -1 }).limit(20).select('username totalPoints seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+    });
+    
+    app.get('/api/classement/points/s2', async (req, res) => { 
+        try { res.json(await User.find({ s2Points: { $gt: 0 } }).sort({ s2Points: -1 }).limit(20).select('username s2Points seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+    });
+
+    app.get('/api/classement/bonus', async (req, res) => { 
+        try { res.json(await User.find({ bonusUsedCount: { $gt: 0 } }).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+    });
+
+    app.get('/api/classement/hof', async (req, res) => { 
+        try { res.json(await User.find({ seasonWins: { $gt: 0 } }).sort({ seasonWins: -1 }).select('username seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+    });
+
     app.get('/api/current-match', async (req, res) => res.json(currentMatch || { status: 'CLOSED' }));
 
     return { closeBonusPhase };
@@ -293,7 +322,12 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
-                        await User.findOneAndUpdate({ twitchId: predictor.userId }, { $setOnInsert: { username: predictor.userName, totalPoints: 0, bonusUsedCount: 0 } }, { upsert: true });
+                        // Enregistrement des participants
+                        await User.findOneAndUpdate(
+                            { twitchId: predictor.userId }, 
+                            { $setOnInsert: { username: predictor.userName, s2Points: 0, totalPoints: 0, bonusUsedCount: 0 } }, 
+                            { upsert: true, strict: false }
+                        );
                     }
                 }
             }
@@ -307,14 +341,19 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                 if (prediction.outcomes) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
-                        for (const v of voters) { await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, totalPoints: 0 } }, { upsert: true }); }
+                        for (const v of voters) { 
+                            await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, s2Points: 0, totalPoints: 0 } }, { upsert: true, strict: false }); 
+                        }
                     }
                 }
                 const winnerId = event.winningOutcome?.id;
                 const winningOutcome = prediction.outcomes.find(o => o.id === winnerId);
                 if (winningOutcome) {
                     const winners = winningOutcome.topPredictors || []; 
-                    for (const w of winners) { await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { totalPoints: 1 } } ); }
+                    for (const w of winners) { 
+                        // ⭐️ SAISON 2 : On incrémente s2Points
+                        await User.findOneAndUpdate( { twitchId: w.userId }, { $inc: { s2Points: 1 } }, { strict: false } ); 
+                    }
                     const winnerTitle = winningOutcome.title.toLowerCase();
                     const matchRes = winnerTitle.match(/(?:choix|bot|ordi|ordinateur)?\s*(\d+)/i);
                     currentMatch.winnerBot = matchRes ? parseInt(matchRes[1]) : null;
@@ -330,6 +369,14 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 // --- Main ---
 async function main() {
     await connectDB();
+    
+    // Chargement config Roue depuis DB
+    const conf = await AppConfig.findOne({ key: 'wheel' });
+    if (conf && conf.wheelChoices && conf.wheelChoices.length > 0) {
+        wheelChoices = [...conf.wheelChoices];
+        originalWheelChoices = [...wheelChoices];
+    }
+
     const lastMatch = await Match.findOne({}).sort({ matchId: -1 });
     if (lastMatch) { 
         currentMatch = lastMatch; currentMatchId = lastMatch.matchId; currentPredictionId = lastMatch.twitchPredictionId;
