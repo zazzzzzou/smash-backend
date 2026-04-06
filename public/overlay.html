@@ -136,7 +136,85 @@
     <script>
         const socket = io();
         let timerInterval;
+
+        // ⭐️ GÉNÉRATEUR AUDIO WEB (SANS FICHIER MP3) ⭐️
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // Bruit du cliquetis mécanique
+        function playTick() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc.type = 'triangle'; // Forme d'onde agressive pour un clic
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
+            
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime); // Volume
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.05);
+        }
+
+        // Bruit de victoire à la fin
+        function playWinSound() {
+            if (!audioCtx) return;
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            // Accord Joyeux
+            osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime); // Do
+            osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // Mi
+            
+            gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
+            
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc1.start(); osc2.start();
+            osc1.stop(audioCtx.currentTime + 1.5); osc2.stop(audioCtx.currentTime + 1.5);
+        }
+
+        // Fonction pour gérer la boucle des clics synchronisée avec le CSS (6 secondes)
+        function startWheelAudio(durationMs) {
+            initAudio(); // Force l'activation
+            let startTime = Date.now();
+            let delay = 20; // Vitesse de départ (très rapide)
+
+            function tickLoop() {
+                let elapsed = Date.now() - startTime;
+                if (elapsed < durationMs) {
+                    playTick();
+                    // Courbe mathématique pour ralentir le son (simule le frottement)
+                    let progress = elapsed / durationMs;
+                    delay = 20 + Math.pow(progress, 3) * 600; // S'allonge jusqu'à ~620ms à la fin
+                    setTimeout(tickLoop, delay);
+                } else {
+                    playWinSound(); // Lancement de l'accord de fin
+                }
+            }
+            tickLoop();
+        }
         
+        // --- Code Existant ---
         function initRows() {
             const container = document.getElementById('bots-container');
             container.innerHTML = '';
@@ -242,7 +320,6 @@
             }
         });
 
-        // ⭐️ LOGIQUE ROUE RADIALE ⭐️
         let currentRotation = 0;
         const wheelColors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#34495e', '#d35400'];
 
@@ -283,6 +360,9 @@
             wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
         });
 
+        // Activation au clic n'importe où (sécurité navigateur)
+        document.body.addEventListener('click', initAudio, { once: true });
+
         socket.on('spin-wheel', (data) => {
             const wheel = document.getElementById('the-wheel');
             const resultBox = document.getElementById('wheel-result');
@@ -302,8 +382,10 @@
             currentRotation += extraSpins + diff;
             wheel.style.transform = `rotate(${currentRotation}deg)`;
 
+            // ⭐️ DÉCLENCHE LE SON DE LA ROUE ⭐️
+            startWheelAudio(data.duration);
+
             setTimeout(() => {
-                // ⭐️ MAJ: Message "LA SCÈNE !!" ⭐️
                 resultBox.innerHTML = `
                     🎉 ${data.winnerName} ! 🎉
                     <div class="scene-warning">👉 N'OUBLIE PAS LA SCÈNE !! 👈</div>
