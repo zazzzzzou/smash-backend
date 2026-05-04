@@ -25,9 +25,13 @@
 
         h2 { color: white; background: linear-gradient(90deg, var(--blb-blue), transparent); padding: 10px; border-left: 8px solid var(--smash-yellow); margin-top: 0; font-size: 1.2em; text-shadow: 2px 2px 0px #000; }
 
-        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 15px; }
+        /* ⭐️ MODIFICATION : Réduction de l'espacement entre les lignes (de 8px à 4px) */
+        table { width: 100%; border-collapse: separate; border-spacing: 0 4px; margin-top: 15px; }
+        
         th { background-color: #000; color: var(--smash-yellow); padding: 12px; font-size: 0.9em; border-bottom: 3px solid var(--smash-yellow); }
-        td { padding: 15px; background: #333; border-top: 2px solid #555; border-bottom: 2px solid #000; font-size: 1.1em; }
+        
+        /* ⭐️ MODIFICATION : Réduction du padding interne des cellules (de 15px à 8px verticaux) */
+        td { padding: 8px 15px; background: #333; border-top: 2px solid #555; border-bottom: 2px solid #000; font-size: 1.1em; }
 
         /* Styles de base pour les cellules */
         .user-cell { font-weight: bold; letter-spacing: 1px; color: white; }

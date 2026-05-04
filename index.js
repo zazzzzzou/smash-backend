@@ -115,12 +115,12 @@ function setupAdminRoutes(app, apiClient, io) {
     const closeBonusPhase = async () => {
         if (currentMatch && currentMatch.status === 'BONUS_ACTIVE') {
             currentMatch.status = 'IN_PROGRESS';
+            // ⭐️ SYNC DB FINALE : On enregistre l'état accumulé en RAM vers la base de données
             currentMatch.bonusResults.botCounters = liveBotCounters;
             currentMatch.markModified('bonusResults');
             currentMatch = await currentMatch.save(); 
             currentBonusEndTime = 0; 
             
-            // ⭐️ MODIFICATION : Désactivation de toutes les récompenses en parallèle pour éviter les blocages API
             const disablePromises = Object.keys(REWARD_IDS).map(key => 
                 updateRewardStatus(apiClient, REWARD_IDS[key], false, true)
             );
@@ -172,7 +172,6 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK' });
     });
 
-    // --- ROUTES ROUE DES BONUS ---
     app.get('/api/wheel', (req, res) => res.json(wheelChoices));
 
     app.post('/admin/update-wheel', bodyParser.json(), (req, res) => {
@@ -221,7 +220,6 @@ function setupAdminRoutes(app, apiClient, io) {
         res.send({ status: 'OK', winnerName });
     });
 
-    // --- ROUTES CLASSEMENT & HALL OF FAME ---
     app.post('/admin/update-hof', bodyParser.json(), async (req, res) => {
         try {
             const { username, wins } = req.body;
@@ -234,7 +232,6 @@ function setupAdminRoutes(app, apiClient, io) {
         } catch(e) { res.status(500).send(e.message); }
     });
 
-    // ⭐️ MODIFICATION : $gte: 0 au lieu de $gt: 0 pour intégrer les parieurs à 0 point
     app.get('/api/classement/points/s1', async (req, res) => { 
         try { res.json(await User.find({ totalPoints: { $gte: 0 } }).sort({ totalPoints: -1 }).limit(20).select('username totalPoints seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
     });
@@ -261,8 +258,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     const listener = new EventSubMiddleware({ apiClient, hostName, pathPrefix: '/twitch-events', secret: eventSubSecret });
     listener.apply(app);
 
-    // ⭐️ MODIFICATION : Throttle (Anti-Freeze)
-    // Permet d'envoyer l'état global à l'overlay au maximum une fois toutes les 200ms
     let stateChangedForThrottle = false;
     setInterval(() => {
         if (stateChangedForThrottle && currentMatch) {
@@ -307,29 +302,26 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         }
 
         if (success) {
-            // Déclenche le throttle pour l'envoi de la jauge
             stateChangedForThrottle = true; 
-            
-            // L'alerte clignotante est envoyée instantanément, elle ne surcharge pas le DOM
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
             
             const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
             
-            // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo à chaque action
+            // Mise à jour immédiate du pseudo et des stats user (Ok car docs différents)
             User.findOneAndUpdate(
                 { twitchId: event.userId }, 
-                { 
-                    $inc: { bonusUsedCount: 1, [countKey]: 1 }, 
-                    $set: { username: event.userDisplayName } 
-                }, 
+                { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $set: { username: event.userDisplayName } }, 
                 { upsert: true }
             ).exec();
             
+            // Sauvegarde du log individuel (Ok car collection différente)
             (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
+            
+            // ⭐️ RAM UNIQUEMENT : On pousse dans le log local du match
             currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
             currentMatch.bonusResults.botCounters = liveBotCounters;
-            currentMatch.markModified('bonusResults');
-            await currentMatch.save();
+            
+            // 🛑 SUPPRESSION DU currentMatch.save() ICI POUR ÉVITER ParallelSaveError
         } else {
             const isRefunded = await refundRedemption(apiClient, authProvider, event.rewardId, event.id);
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input: input || "N/A", isSuccess: false, message: logMsg + (isRefunded ? " (Remboursé)" : "") });
@@ -355,7 +347,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
-                        // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo
                         await User.findOneAndUpdate(
                             { twitchId: predictor.userId }, 
                             { 
@@ -378,13 +369,9 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
                         for (const v of voters) { 
-                            // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo
                             await User.findOneAndUpdate(
                                 { twitchId: v.userId }, 
-                                { 
-                                    $set: { username: v.userName }, 
-                                    $setOnInsert: { s2Points: 0, totalPoints: 0 } 
-                                }, 
+                                { $set: { username: v.userName }, $setOnInsert: { s2Points: 0, totalPoints: 0 } }, 
                                 { upsert: true, strict: false }
                             ); 
                         }
@@ -414,7 +401,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
 async function main() {
     await connectDB();
     
-    // Chargement config Roue depuis DB
     const conf = await AppConfig.findOne({ key: 'wheel' });
     if (conf && conf.wheelChoices && conf.wheelChoices.length > 0) {
         wheelChoices = [...conf.wheelChoices];
