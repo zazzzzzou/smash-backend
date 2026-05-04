@@ -120,7 +120,12 @@ function setupAdminRoutes(app, apiClient, io) {
             currentMatch = await currentMatch.save(); 
             currentBonusEndTime = 0; 
             
-            for(const key in REWARD_IDS) await updateRewardStatus(apiClient, REWARD_IDS[key], false, true); 
+            // ⭐️ MODIFICATION : Désactivation de toutes les récompenses en parallèle pour éviter les blocages API
+            const disablePromises = Object.keys(REWARD_IDS).map(key => 
+                updateRewardStatus(apiClient, REWARD_IDS[key], false, true)
+            );
+            await Promise.allSettled(disablePromises);
+            
             emitGameStatus(io, currentMatch);
         }
     };
@@ -229,16 +234,17 @@ function setupAdminRoutes(app, apiClient, io) {
         } catch(e) { res.status(500).send(e.message); }
     });
 
+    // ⭐️ MODIFICATION : $gte: 0 au lieu de $gt: 0 pour intégrer les parieurs à 0 point
     app.get('/api/classement/points/s1', async (req, res) => { 
-        try { res.json(await User.find({ totalPoints: { $gt: 0 } }).sort({ totalPoints: -1 }).limit(20).select('username totalPoints seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+        try { res.json(await User.find({ totalPoints: { $gte: 0 } }).sort({ totalPoints: -1 }).limit(20).select('username totalPoints seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
     });
     
     app.get('/api/classement/points/s2', async (req, res) => { 
-        try { res.json(await User.find({ s2Points: { $gt: 0 } }).sort({ s2Points: -1 }).limit(20).select('username s2Points seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+        try { res.json(await User.find({ s2Points: { $exists: true, $gte: 0 } }).sort({ s2Points: -1 }).limit(20).select('username s2Points seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
     });
 
     app.get('/api/classement/bonus', async (req, res) => { 
-        try { res.json(await User.find({ bonusUsedCount: { $gt: 0 } }).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
+        try { res.json(await User.find({ bonusUsedCount: { $gte: 0 } }).sort({ bonusUsedCount: -1 }).limit(20).select('username bonusUsedCount luCount ldCount cpCount seasonWins -_id')); } catch (e) { res.status(500).send(e.message); } 
     });
 
     app.get('/api/classement/hof', async (req, res) => { 
@@ -254,6 +260,16 @@ function setupAdminRoutes(app, apiClient, io) {
 function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) { 
     const listener = new EventSubMiddleware({ apiClient, hostName, pathPrefix: '/twitch-events', secret: eventSubSecret });
     listener.apply(app);
+
+    // ⭐️ MODIFICATION : Throttle (Anti-Freeze)
+    // Permet d'envoyer l'état global à l'overlay au maximum une fois toutes les 200ms
+    let stateChangedForThrottle = false;
+    setInterval(() => {
+        if (stateChangedForThrottle && currentMatch) {
+            emitGameStatus(io, currentMatch);
+            stateChangedForThrottle = false;
+        }
+    }, 200);
 
     listener.onChannelRedemptionAdd(channelUserId, async (event) => {
         if (!currentMatch || currentMatch.status !== 'BONUS_ACTIVE') return;
@@ -291,10 +307,24 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
         }
 
         if (success) {
+            // Déclenche le throttle pour l'envoi de la jauge
+            stateChangedForThrottle = true; 
+            
+            // L'alerte clignotante est envoyée instantanément, elle ne surcharge pas le DOM
             io.emit('bonus-update', { type: rewardKey, user: event.userDisplayName, input, isSuccess: true });
-            emitGameStatus(io, currentMatch);
+            
             const countKey = rewardKey === 'LEVEL_UP' ? 'luCount' : (rewardKey === 'LEVEL_DOWN' ? 'ldCount' : 'cpCount');
-            User.findOneAndUpdate({ twitchId: event.userId }, { $inc: { bonusUsedCount: 1, [countKey]: 1 }, $setOnInsert: { username: event.userDisplayName } }, { upsert: true }).exec();
+            
+            // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo à chaque action
+            User.findOneAndUpdate(
+                { twitchId: event.userId }, 
+                { 
+                    $inc: { bonusUsedCount: 1, [countKey]: 1 }, 
+                    $set: { username: event.userDisplayName } 
+                }, 
+                { upsert: true }
+            ).exec();
+            
             (new BonusLog({ matchId: currentMatch.matchId, userId: event.userId, bonusType: rewardKey, input })).save();
             currentMatch.bonusResults.log.push({ user: event.userDisplayName, userId: event.userId, reward: rewardKey, input });
             currentMatch.bonusResults.botCounters = liveBotCounters;
@@ -316,18 +346,22 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     });
 
     listener.onChannelPredictionProgress(channelUserId, async (event) => {
-        // ⭐️ FIX: Vérification stricte de la prédiction liée au Smash Bet
         if (!currentMatch || currentMatch.twitchPredictionId !== event.id) return;
 
         lastPredictionData = event.outcomes.map(o => ({ title: o.title, channelPoints: o.channelPoints, users: o.users }));
         io.emit('prediction-progress', lastPredictionData);
+        
         if (event.outcomes) {
             for (const outcome of event.outcomes) {
                 if (outcome.topPredictors) {
                     for (const predictor of outcome.topPredictors) {
+                        // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo
                         await User.findOneAndUpdate(
                             { twitchId: predictor.userId }, 
-                            { $setOnInsert: { username: predictor.userName, s2Points: 0, totalPoints: 0, bonusUsedCount: 0 } }, 
+                            { 
+                                $set: { username: predictor.userName }, 
+                                $setOnInsert: { s2Points: 0, totalPoints: 0, bonusUsedCount: 0 } 
+                            }, 
                             { upsert: true, strict: false }
                         );
                     }
@@ -337,7 +371,6 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
     });
 
     listener.onChannelPredictionEnd(channelUserId, async (event) => {
-        // ⭐️ FIX: Vérification stricte de la prédiction liée au Smash Bet
         if (currentMatch && currentMatch.twitchPredictionId === event.id && event.status.toLowerCase() === 'resolved') {
             try {
                 const prediction = await apiClient.predictions.getPredictionById(channelUserId, event.id);
@@ -345,7 +378,15 @@ function setupEventSub(app, apiClient, io, closeBonusPhase, authProvider) {
                     for (const outcome of prediction.outcomes) {
                         const voters = outcome.topPredictors || [];
                         for (const v of voters) { 
-                            await User.findOneAndUpdate({ twitchId: v.userId }, { $setOnInsert: { username: v.userName, s2Points: 0, totalPoints: 0 } }, { upsert: true, strict: false }); 
+                            // ⭐️ MODIFICATION : $set pour forcer la mise à jour du pseudo
+                            await User.findOneAndUpdate(
+                                { twitchId: v.userId }, 
+                                { 
+                                    $set: { username: v.userName }, 
+                                    $setOnInsert: { s2Points: 0, totalPoints: 0 } 
+                                }, 
+                                { upsert: true, strict: false }
+                            ); 
                         }
                     }
                 }
